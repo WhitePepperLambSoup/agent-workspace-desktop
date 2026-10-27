@@ -1,0 +1,37 @@
+.workbench[data-experience="mainstream"] .composer-continuity .composer-tool-menu .composer-inline-tools {
+  flex-wrap: wrap;
+  max-width: min(260px, calc(100vw - 48px));
+}
+
+.composer-continuity .composer-queue-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.composer-continuity .composer-queue-action:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.composer-continuity .composer-queue-action:disabled {
+  opacity: .45;
+  cursor: default;
+}
+
+.composer-continuity .steer-button {
+  flex: 0 0 auto;
+}
+
+.composer-continuity .composer-actions {
+  align-items: flex-end;
+}

@@ -1,0 +1,30 @@
+.research-inspector { min-width: 0; }
+.research-switch { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px; margin: 10px 0 4px; background: var(--input); border-radius: 7px; }
+.research-switch button { min-width: 0; min-height: 32px; border: 0; border-radius: 5px; background: transparent; color: var(--text-muted); cursor: pointer; }
+.research-switch button[aria-pressed="true"] { background: var(--accent); color: var(--accent-contrast); }
+.research-list { min-width: 0; }
+.research-row { min-width: 0; padding: 13px 2px; border-bottom: 1px solid var(--divider); }
+.research-row > strong { display: block; font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
+.research-row p { margin: 6px 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.research-source-title { display: flex; align-items: flex-start; gap: 7px; width: 100%; padding: 0; border: 0; background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+.research-source-title svg { flex: 0 0 auto; margin-top: 1px; }
+.research-source-title strong { min-width: 0; font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
+.research-source-title:hover strong, .research-citation-source:hover { text-decoration: underline; }
+.research-url { display: block; margin: 5px 0 0; color: var(--text-muted); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
+.research-row blockquote { margin: 8px 0; padding: 3px 0 3px 10px; border-left: 2px solid var(--accent); color: var(--text-muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.research-citation-source { padding: 0; border: 0; background: transparent; color: var(--accent); font-size: 11px; text-align: left; cursor: pointer; }
+.research-reader { min-width: 0; padding-top: 10px; }
+.research-reader-header { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.research-reader-header h3 { flex: 1; min-width: 0; margin: 0; color: var(--text); font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
+.research-reader-header a, .research-back { display: inline-grid; place-items: center; flex: 0 0 auto; width: 28px; height: 28px; padding: 0; border: 1px solid var(--divider); border-radius: 5px; background: var(--input); color: var(--text); cursor: pointer; }
+.research-summary { margin: 8px 0; color: var(--text); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.research-fetched { display: block; margin-top: 7px; color: var(--text-muted); font-size: 11px; }
+.research-format-switch { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; margin-top: 13px; padding: 3px; border: 1px solid var(--divider); border-radius: 6px; background: var(--input); }
+.research-format-switch button { min-width: 0; min-height: 30px; border: 0; border-radius: 4px; background: transparent; color: var(--text-muted); cursor: pointer; }
+.research-format-switch button[aria-pressed="true"] { background: var(--accent); color: var(--accent-contrast); }
+.research-source-text { max-width: 100%; margin: 12px 0 0; padding: 11px; border: 1px solid var(--divider); border-radius: 5px; background: var(--input); color: var(--text); font: inherit; font-size: 12px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.research-more { display: block; width: 100%; min-height: 34px; margin: 10px 0; border: 1px solid var(--divider); border-radius: 5px; background: var(--input); color: var(--text); cursor: pointer; }
+.research-more:disabled { opacity: .6; cursor: wait; }
+.research-empty, .research-error, .research-notice { margin: 14px 2px; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.research-error { color: var(--text); }
+.research-error button { display: inline-flex; align-items: center; gap: 4px; margin-left: 4px; padding: 3px 5px; border: 0; background: transparent; color: var(--accent); cursor: pointer; }

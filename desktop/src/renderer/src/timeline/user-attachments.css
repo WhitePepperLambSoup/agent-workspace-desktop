@@ -1,0 +1,30 @@
+.user-attachment-labels {
+  display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.user-attachment-label {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--divider);
+  border-radius: 6px;
+  color: var(--text);
+  background: var(--input);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.user-attachment-label > svg { flex: 0 0 auto; }
+.user-attachment-label > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

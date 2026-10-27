@@ -1,0 +1,10 @@
+node_modules/
+out/
+dist/
+test-results/
+# Screenshots and JSON evidence written by the Electron UI audits.
+output/
+# Local probe scripts, debug profiles and scratch from ad-hoc runs.
+.tmp*
+tmp/
+tmp-*/

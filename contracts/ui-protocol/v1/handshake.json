@@ -1,0 +1,1 @@
+{"v":1,"kind":"command","requestId":"fixture-handshake","type":"app.handshake","payload":{"client":"electron","protocol":1},"sessionId":null}

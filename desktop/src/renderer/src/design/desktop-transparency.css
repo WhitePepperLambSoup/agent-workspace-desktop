@@ -1,0 +1,124 @@
+/* Windows supplies the live desktop blur. Renderer layers only tint it;
+   CSS backdrop filters cannot sample pixels outside the Electron window. */
+.app-shell[data-desktop-transparent="true"][data-color-mode="dark"] {
+  --desktop-plane: rgba(15, 22, 34, .55);
+  --desktop-highlight: rgba(233, 248, 255, .32);
+  --canvas: #131c29;
+  --canvas-alt: #1c2838;
+  --reading: rgba(15, 22, 34, .55);
+  --raised: rgba(31, 44, 61, .72);
+  --input: rgba(24, 36, 53, .68);
+  --glass-fill: rgba(26, 40, 58, .20);
+  --text: #f3f7fc;
+  --text-muted: #c8d5e4;
+  --faint: #b5c4d7;
+  --divider: rgba(219, 233, 251, .18);
+}
+.app-shell[data-desktop-transparent="true"][data-color-mode="light"] {
+  --desktop-plane: rgba(244, 248, 253, .55);
+  --desktop-highlight: rgba(255, 255, 255, .68);
+  --canvas: #f0f4f9;
+  --canvas-alt: #f8fafc;
+  --reading: rgba(244, 248, 253, .55);
+  --raised: rgba(247, 250, 254, .80);
+  --input: rgba(250, 252, 255, .78);
+  --glass-fill: rgba(244, 248, 253, .20);
+  --text: #172638;
+  --text-muted: #3f536b;
+  --faint: #4d6178;
+  --divider: rgba(31, 53, 82, .18);
+}
+
+.app-shell[data-desktop-transparent="true"][data-material][data-color-mode] {
+  padding: 0 !important;
+  background: transparent !important;
+}
+.app-shell[data-desktop-transparent="true"][data-material][data-color-mode] .workbench[data-ui-version="reference"][data-experience="mainstream"] {
+  background: transparent !important;
+}
+
+/* One translucent plane per column, including settings and other routes.
+   Reading containers inside it must not accumulate a second opaque fill. */
+.app-shell[data-desktop-transparent="true"][data-material][data-color-mode] .workbench[data-ui-version="reference"][data-experience="mainstream"] > :is(.title-strip, .activity-rail, .session-sidebar, .conversation-column, .settings-column, .route-column, .inspector) {
+  background: var(--desktop-plane) !important;
+  color: var(--text);
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+.app-shell[data-desktop-transparent="true"][data-material][data-color-mode] .workbench[data-ui-version="reference"][data-experience="mainstream"] :is(.reading-surface, .conversation-reading-stage, .conversation-reading, .conversation-dock, .conversation-header, .conversation-meta-bar, .settings-route-content, .route-content, .route-header, .inspector-content, .inspector-heading, .inspector-summary-strip, .inspector-tabs):not(.settings-column):not(.route-column):not(.conversation-column) {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Clear the opaque synthetic base while keeping the translucent optical field. */
+.app-shell[data-desktop-transparent="true"][data-material][data-color-mode] .workbench[data-ui-version="reference"][data-experience="mainstream"]::before,
+.app-shell[data-desktop-transparent="true"][data-material][data-color-mode] .workbench[data-ui-version="reference"][data-experience="mainstream"]::after,
+.app-shell[data-desktop-transparent="true"][data-material][data-color-mode] .workbench[data-ui-version="reference"][data-experience="mainstream"] :is(.glass-surface, .reading-surface, .conversation-dock)::before,
+.app-shell[data-desktop-transparent="true"][data-material][data-color-mode] .workbench[data-ui-version="reference"][data-experience="mainstream"] :is(.glass-surface, .reading-surface, .conversation-dock)::after {
+  display: none !important;
+}
+
+.app-shell[data-desktop-transparent="true"][data-material="liquid"][data-color-mode] .liquid-backdrop {
+  opacity: 1 !important;
+  background: transparent !important;
+  filter: none !important;
+}
+.app-shell[data-desktop-transparent="true"][data-material="mica"][data-color-mode] .liquid-backdrop {
+  display: none !important;
+}
+.app-shell[data-desktop-transparent="true"][data-material="liquid"][data-color-mode] .workbench[data-ui-version="reference"][data-experience="mainstream"] > :is(.title-strip, .activity-rail, .session-sidebar, .conversation-column, .settings-column, .route-column, .inspector) {
+  box-shadow: inset 1px 1px 0 var(--desktop-highlight), inset -1px -1px 0 rgba(8, 18, 30, .22), 0 4px 16px rgba(4, 12, 25, .10) !important;
+}
+/* Reflect light around the pane's rim without washing out its reading area. */
+.app-shell[data-desktop-transparent="true"][data-material="liquid"][data-color-mode] .workbench[data-ui-version="reference"][data-experience="mainstream"] > :is(.title-strip, .activity-rail, .session-sidebar, .conversation-column, .settings-column, .route-column, .inspector)::after {
+  content: "";
+  display: block !important;
+  position: absolute;
+  inset: 0 !important;
+  z-index: 0;
+  box-sizing: border-box;
+  padding: 1.5px;
+  border: 0 !important;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(135deg, var(--desktop-highlight), transparent 28%, color-mix(in srgb, var(--edge-a) 65%, transparent) 54%, transparent 72%, var(--desktop-highlight)) !important;
+  box-shadow: none !important;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  opacity: 1 !important;
+  transform: none !important;
+  filter: none !important;
+  animation: none !important;
+  transition: none !important;
+  mix-blend-mode: normal;
+}
+/* A thin highlight travels across the input glass with pointer movement. */
+.app-shell[data-desktop-transparent="true"][data-material="liquid"][data-color-mode] .workbench[data-ui-version="reference"][data-experience="mainstream"] .glass-interactive::after {
+  content: "";
+  display: block !important;
+  position: absolute;
+  inset: 0 !important;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(ellipse 160px 75% at calc(50% + var(--specular-offset, 0px)) 45%, var(--desktop-highlight), transparent 72%);
+  opacity: calc(var(--specular-opacity, 0) * .65) !important;
+  transform: none !important;
+  filter: none !important;
+  animation: none !important;
+  transition: opacity 160ms linear, transform 220ms linear;
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-shell[data-desktop-transparent="true"][data-material="liquid"][data-color-mode] .workbench[data-ui-version="reference"][data-experience="mainstream"] .glass-interactive::after {
+    display: none !important;
+  }
+}
+
+/* Controls retain a stable local fill and full text opacity over any desktop. */
+.app-shell[data-desktop-transparent="true"][data-material][data-color-mode] .workbench[data-ui-version="reference"][data-experience="mainstream"] :is(.composer-shell, .sidebar-search, .tool-row, .message-bubble, .reference-fact-row, .inspector-tabs button[aria-selected="true"]) {
+  color: var(--text) !important;
+  background: var(--input) !important;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text) 8%, transparent) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}

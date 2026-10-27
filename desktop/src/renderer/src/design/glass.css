@@ -1,0 +1,57 @@
+.glass-surface {
+  position: relative;
+  background: var(--glass-fill);
+  border: 1px solid;
+  border-color: var(--edge-a) var(--edge-b) var(--edge-b) var(--edge-a);
+  border-radius: min(8px, var(--panel-radius));
+  box-shadow: inset 1px 1px 0 var(--edge-a), inset -1px -1px 0 var(--edge-b), inset 0 1px 0 rgba(255, 255, 255, .12), 0 7px 18px rgba(0, 0, 0, .14);
+  backdrop-filter: blur(30px) saturate(1.18);
+  -webkit-backdrop-filter: blur(30px) saturate(1.18);
+}
+[data-material="liquid"] .glass-surface {
+  background:
+    linear-gradient(128deg, color-mix(in srgb, var(--edge-a) 58%, transparent), transparent 38%, color-mix(in srgb, var(--edge-b) 42%, transparent)),
+    linear-gradient(32deg, color-mix(in srgb, var(--edge-b) 46%, transparent), transparent 42%, color-mix(in srgb, var(--edge-a) 34%, transparent)),
+    var(--glass-fill);
+}
+[data-material="mica"] .glass-surface {
+  background: color-mix(in srgb, var(--glass-fill) 72%, var(--raised) 28%);
+  backdrop-filter: blur(24px) saturate(1.12);
+  -webkit-backdrop-filter: blur(24px) saturate(1.12);
+}
+[data-material="solid"] .glass-surface,
+[data-high-contrast="true"] .glass-surface {
+  background: var(--raised);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-color: var(--divider);
+  box-shadow: none;
+}
+.glass-interactive { overflow: hidden; }
+.glass-interactive::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  opacity: var(--specular-opacity, 0);
+  /* The highlight moves inside the surface so it never spills past rounded edges. */
+  background: radial-gradient(ellipse 160px 90% at calc(50% + var(--specular-offset, 0px)) 0%, rgba(255, 255, 255, .14), transparent 72%);
+  transition: opacity 160ms linear;
+}
+[data-high-contrast="true"] .glass-interactive::after,
+[data-material="solid"] .glass-interactive::after { display: none; }
+.liquid-backdrop {
+  position: fixed;
+  inset: 0;
+  clip-path: inset(0 round var(--window-radius, 8px));
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  background-color: var(--optical-base);
+}
+.liquid-backdrop[data-active="false"], .liquid-backdrop[data-fallback="static"] { opacity: .98; }
+@media (prefers-reduced-motion: reduce) {
+  .glass-interactive::after { display: none; }
+}

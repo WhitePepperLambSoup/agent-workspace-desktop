@@ -1,0 +1,80 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # The public repository carries the program source only: these checks need no test files.
+  checks:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          enable-cache: true
+          version: "0.11.25"
+      - uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
+        with:
+          node-version: "22.14.0"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Install Python dependencies
+        run: uv sync --frozen --python 3.12.10 --group dev --group audit --group package
+      - name: Audit Python dependencies
+        run: uv run --group audit pip-audit
+      - name: Lint
+        run: uv run ruff check src scripts
+      - name: Format check
+        run: uv run ruff format --check src scripts
+      - name: Type check
+        run: uv run mypy src scripts/build_electron_release.py scripts/check_architecture.py
+      - name: Architecture boundaries
+        run: uv run python scripts/check_architecture.py
+      - name: Install Electron dependencies
+        working-directory: desktop
+        run: npm ci
+      - name: Audit Electron production dependencies
+        working-directory: desktop
+        run: npm audit --registry=https://registry.npmjs.org --omit=dev --audit-level=high
+      - name: Type check Electron
+        working-directory: desktop
+        run: npm run typecheck
+
+  release:
+    needs: checks
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          enable-cache: true
+          version: "0.11.25"
+      - uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
+        with:
+          node-version: "22.14.0"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Install Electron dependencies
+        working-directory: desktop
+        run: npm ci
+      - name: Build the Windows release
+        run: >-
+          uv run --frozen --python 3.12.10 --group package python
+          scripts/build_electron_release.py --output-dir dist/electron-release
+      - name: Verify the Windows release
+        run: >-
+          uv run --frozen --python 3.12.10 python
+          scripts/build_electron_release.py --verify dist/electron-release/AgentWorkspace
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: AgentWorkspace-windows-x64-unsigned
+          path: dist/electron-release/AgentWorkspace/**/*
+          if-no-files-found: error

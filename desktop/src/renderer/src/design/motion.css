@@ -1,0 +1,95 @@
+/* Motion: the spring curves shared with the Android app (design/motion.ts publishes
+   --spring-*). Only opacity, translate and scale move, so the compositor runs them;
+   reduced motion, from the system or the appearance setting, turns all of it off
+   (reference.css). */
+
+/* Pages rise like Windows page transitions; a sideways start would overflow the pane. */
+@keyframes motion-surface-in { from { opacity: 0; translate: 0 10px; } }
+@keyframes motion-rise-in { from { opacity: 0; translate: 0 8px; } }
+@keyframes motion-pop-down { from { opacity: 0; translate: 0 -6px; scale: .94; } }
+@keyframes motion-pop-up { from { opacity: 0; translate: 0 6px; scale: .94; } }
+@keyframes motion-dialog-in { from { opacity: 0; translate: 0 -10px; scale: .97; } }
+@keyframes motion-fade-in { from { opacity: 0; } }
+@keyframes motion-panel-in-start { from { opacity: 0; translate: -14px 0; } }
+@keyframes motion-panel-in-end { from { opacity: 0; translate: 14px 0; } }
+
+/* A route, the conversation and settings settle in when they open. The glass
+   pane stays put and its content moves, so the backdrop blur never fades. */
+.app-shell .workbench > :is(.route-column, .conversation-column, .settings-column) > * {
+  animation: motion-surface-in var(--spring-snappy-ms, 150ms) var(--spring-snappy, linear) backwards;
+}
+.app-shell .workbench > :is(.route-column, .conversation-column, .settings-column) > :nth-child(2) { animation-delay: 30ms; }
+.app-shell .workbench > :is(.route-column, .conversation-column, .settings-column) > :nth-child(n+3) { animation-delay: 60ms; }
+
+/* Menus grow from the control that opened them. */
+.app-shell :is(.session-actions-menu, .workspace-menu) {
+  transform-origin: top right;
+  animation: motion-pop-down var(--spring-bouncy-ms, 150ms) var(--spring-bouncy, linear) backwards;
+}
+.app-shell .composer-suggestions {
+  transform-origin: bottom left;
+  animation: motion-pop-up var(--spring-snappy-ms, 150ms) var(--spring-snappy, linear) backwards;
+}
+.app-shell .composer-tool-menu[open] .composer-inline-tools {
+  transform-origin: bottom left;
+  animation: motion-pop-up var(--spring-bouncy-ms, 150ms) var(--spring-bouncy, linear) backwards;
+}
+.app-shell .session-actions-menu > *,
+.app-shell .workspace-menu > * {
+  animation: motion-rise-in var(--spring-snappy-ms, 150ms) var(--spring-snappy, linear) backwards;
+}
+.app-shell :is(.session-actions-menu, .workspace-menu) > :nth-child(2) { animation-delay: 25ms; }
+.app-shell :is(.session-actions-menu, .workspace-menu) > :nth-child(3) { animation-delay: 50ms; }
+.app-shell :is(.session-actions-menu, .workspace-menu) > :nth-child(n+4) { animation-delay: 75ms; }
+
+/* The command palette and dialogs drop in over a fading backdrop. */
+.app-shell .command-overlay { animation: motion-fade-in var(--spring-snappy-ms, 150ms) linear backwards; }
+.app-shell :is(.command-palette, .command-overlay > .compare-dialog) {
+  animation: motion-dialog-in var(--spring-snappy-ms, 150ms) var(--spring-snappy, linear) backwards;
+}
+
+/* New conversation rows, notices and the landing cards rise into place. */
+.app-shell .project-session-list > .session-row-item,
+.app-shell .session-list > .session-row-item,
+.app-shell :is(.route-error, .sidebar-notice, .timeline-notice) {
+  animation: motion-rise-in var(--spring-snappy-ms, 150ms) var(--spring-snappy, linear) backwards;
+}
+.app-shell .empty-session-suggestions button {
+  animation: motion-rise-in var(--spring-bouncy-ms, 150ms) var(--spring-bouncy, linear) backwards;
+}
+.app-shell .empty-session-suggestions button:nth-child(2) { animation-delay: 40ms; }
+.app-shell .empty-session-suggestions button:nth-child(3) { animation-delay: 80ms; }
+.app-shell .empty-session-suggestions button:nth-child(n+4) { animation-delay: 120ms; }
+
+/* A message that arrives while the conversation is open rises in; rows the
+   virtual list mounts while scrolling stay still (ConversationTimeline marks
+   arrivals). Rows sit at an inline transform, so this moves `translate`. */
+.app-shell .timeline-row[data-arrived="true"] {
+  animation: motion-rise-in var(--spring-bouncy-ms, 150ms) var(--spring-bouncy, linear) backwards;
+}
+
+/* Buttons give under the pointer and spring back. */
+.app-shell :is(.send-button, .new-session-button, .project-empty-action, .sidebar-empty-action, .empty-session-suggestions button):not(:active) {
+  transition: background-color var(--motion, 180ms) linear, box-shadow var(--motion, 180ms) linear,
+    color var(--motion, 180ms) linear, opacity var(--motion, 180ms) linear,
+    transform var(--spring-bouncy-ms, 180ms) var(--spring-bouncy, linear), scale var(--spring-bouncy-ms, 180ms) var(--spring-bouncy, linear);
+}
+.app-shell :is(.send-button, .new-session-button, .project-empty-action, .sidebar-empty-action, .empty-session-suggestions button):active:not(:disabled) {
+  scale: .96;
+  transition: scale 60ms linear;
+}
+
+/* Side panels opened beside the conversation slide their content in from
+   their outer edge; below 1024px they are drawers that move with their
+   transform transition instead. */
+@media (min-width: 1024px) {
+  .app-shell .workbench > .session-sidebar[data-open="true"] > * {
+    animation: motion-panel-in-start var(--spring-snappy-ms, 150ms) var(--spring-snappy, linear) backwards;
+  }
+  .app-shell .workbench > .inspector[data-open="true"] > * {
+    animation: motion-panel-in-end var(--spring-snappy-ms, 150ms) var(--spring-snappy, linear) backwards;
+  }
+}
+@media (max-width: 1023px) {
+  .app-shell .workbench > .drawer-backdrop { animation: motion-fade-in var(--spring-snappy-ms, 150ms) linear backwards; }
+}

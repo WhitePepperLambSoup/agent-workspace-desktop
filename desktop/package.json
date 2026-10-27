@@ -1,0 +1,110 @@
+{
+  "name": "agent-workspace-desktop",
+  "version": "0.1.0-alpha.1",
+  "description": "Secure Electron shell for Agent Workspace",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "test": "vitest",
+    "test:e2e": "playwright test",
+    "test:packaged": "node scripts/test-packaged.mjs",
+    "package:installer": "electron-builder --win nsis --x64",
+    "typecheck": "tsc --noEmit",
+    "verify:sidecar": "node scripts/verify-sidecar.mjs",
+    "package:win": "npm run verify:sidecar && npm run build && electron-builder --win dir --x64"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "build": {
+    "appId": "local.agentworkspace.desktop",
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://github.com/WhitePepperLambSoup/agent-workspace-desktop/releases/latest/download"
+      }
+    ],
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "packElevateHelper": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "AgentWorkspace-Setup-${version}.${ext}"
+    },
+    "productName": "AgentWorkspace",
+    "executableName": "AgentWorkspace",
+    "win": {
+      "icon": "resources/icon.png"
+    },
+    "files": [
+      "out/**/*",
+      "package.json",
+      "!**/node_modules/**/*"
+    ],
+    "electronLanguages": [
+      "zh-CN",
+      "zh-TW",
+      "en-US",
+      "ja"
+    ],
+    "extraResources": [
+      {
+        "from": "build/sidecar/agent-workspace-ui-gateway.exe",
+        "to": "sidecar/agent-workspace-ui-gateway.exe"
+      },
+      {
+        "from": "build/sidecar/_internal",
+        "to": "sidecar/_internal"
+      }
+    ],
+    "extraFiles": [
+      {
+        "from": "../LICENSE",
+        "to": "LICENSE"
+      },
+      {
+        "from": "../THIRD_PARTY_NOTICES.md",
+        "to": "THIRD_PARTY_NOTICES.md"
+      }
+    ]
+  },
+  "dependencies": {
+    "@tanstack/react-virtual": "^3.14.9",
+    "electron-updater": "^6.8.9",
+    "katex": "^0.18.11",
+    "lucide-react": "^1.28.0",
+    "qrcode-generator": "^2.0.4",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-markdown": "^10.1.0",
+    "rehype-katex": "^7.0.1",
+    "rehype-sanitize": "^6.0.0",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
+    "shiki": "^4.4.1",
+    "zod": "^4.6.7"
+  },
+  "overrides": {
+    "katex": "$katex"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.62.1",
+    "@testing-library/jest-dom": "^7.0.0",
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "^26.1.2",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "jsdom": "^30.0.1",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.6",
+    "vitest": "^4.1.10"
+  }
+}

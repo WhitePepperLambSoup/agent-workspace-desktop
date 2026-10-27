@@ -21,6 +21,7 @@
   "type": "module",
   "build": {
     "appId": "local.agentworkspace.desktop",
+    "detectUpdateChannel": false,
     "publish": [
       {
         "provider": "generic",

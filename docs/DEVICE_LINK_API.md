@@ -21,13 +21,15 @@ Implementation (`src/agent_workspace/ui_gateway/`):
   phones, finished turns and each phone's activity record (`link.db`, next to `devices.json`).
 - `device_hub.py`: the work behind the version 2 routes (files, transfers, hand-offs, knowledge).
 - `mdns.py`: the local-network announcement.
-- `runtime.py`: the `device_*` methods of `GatewayRuntime`, the `devices.*` window commands and the
-  `phone_task` launcher; `tools/phone_jobs.py` is the tool itself.
+- `gateway_devices.py`: the `device_*` methods of `GatewayRuntime` and the `devices.*` window
+  commands; `gateway_common.py` holds the `phone_task` launcher and `tools/phone_jobs.py` the tool
+  itself.
+- `device_review.py`: the code review routes, through the window's Changes page handlers.
 
 Tests (with the development sources): `tests/test_device_link.py` (version 1 behaviour),
 `tests/test_device_link_v2.py` (every version 2 route over HTTP against the gateway),
 `tests/test_device_link_android.py` (the Android app's own `mobile_link` client against this
-endpoint),
+endpoint), `tests/test_device_link_code_review.py` (the code review routes against a git folder),
 `desktop/tests/electron/real-sidecar-device-link.spec.ts`, and
 `desktop/tests/electron/real-phone-device-link.spec.ts` (the packaged app and a real phone over
 adb; runs only with `AGENT_WORKSPACE_REAL_PHONE=1`).
@@ -177,6 +179,33 @@ The desktop's search uses its own word index; there are no vectors to compute.
 **Device.** `GET /mobile/device` returns the phone's record with the last 100 activity entries;
 `POST /mobile/device` takes `accepts_jobs` only.
 
+## Code review (`code_review`)
+
+Not in the shared contract yet: the desktop lists `code_review` in `features`, and the Android app
+does not use it today. A phone reviews the open folder's changes as the window's **Changes** page
+does; each route goes through the same handler, so both see the same snapshots and comments.
+Field names are snake_case.
+
+| Route | Scope | Answer |
+| --- | --- | --- |
+| `GET /mobile/changes` | `read` | `{"git", "error", "files": [{"path", "status", "additions", "deletions", "hunks"}]}`: the uncommitted changes; `git` is false outside a repository |
+| `GET /mobile/changes/diff?path=` | `read` | `{"path", "status", "hunks", "truncated"}`; `400` without `path`, `404 unknown_path` for a file that has no change |
+| `GET /mobile/reviews` | `read` | `{"snapshots": [{"id", "created_at", "files", "additions", "deletions", "uncommitted", "session_id", "run_id"}]}`, the last 20 |
+| `GET /mobile/reviews/{id}` | `read` | `{"snapshot": {"id", "created_at", "base", "head", "uncommitted", "session_id", "files": [{"path", "status", "additions", "deletions", "hunks", "truncated"}]}, "comments": […]}` |
+| `POST /mobile/reviews` | `tasks` | `201`, as above: the changes frozen into a new snapshot. Optional `session_id`; the conversation open in the window otherwise |
+| `POST /mobile/reviews/{id}/comments` | `tasks` | `201 {"comment"}`. Body `{"path", "side": "old"\|"new", "line", "body"}`; the line must be in that side of the snapshot's diff |
+| `POST /mobile/reviews/comments/{id}/followup` | `tasks` | `{"comment", "run_id", "started"}`: an agent run in its own worktree addresses the comment, with the window's autonomy. Optional `session_id`; `accept_autonomy` as for a task when that autonomy is YOLO or full access (same `409`/`403` refusals) |
+
+A hunk is `{"header", "lines": [{"kind": "context"|"add"|"delete"|"marker", "content",
+"old_line", "new_line"}]}` (`marker`: git's "\ No newline at end of file"). A diff is cut at 3,000 lines (a snapshot's files share the budget) and the cut file
+says `truncated`. A comment is `{"id", "path", "side", "line", "body", "state": "open"|"resolved",
+"author", "followup_run_id", "created_at"}`; `body` is trimmed and at most 4,000 characters
+(`400 invalid_comment`). A comment already handed over answers
+`409 {"error": "followup_already_exists", "run_id"}` before anything starts, so a phone can repeat
+the request safely. Refusals: `404 unknown_review`, `404 unknown_comment`, `400 invalid_session`,
+`400 invalid_comment_anchor`, `409 no_changes` (nothing to freeze), `413 review_too_large`,
+`503 no_workspace`.
+
 ## Requests to phones (`phone_task`)
 
 The desktop's AI gets the tool `phone_task(task, operate_phone=false, device?, wait_minutes=15)`
@@ -199,8 +228,9 @@ from the phone). The window shows "From phone <name>" with the labels.
 
 Each phone's record (`GET /mobile/device`, the settings page) logs `paired`, `task_sent`,
 `task_finished`, `approval_decided`, `turn_stopped`, `file_received`, `file_sent`, `text_received`,
-`text_sent`, `conversation_received`, `conversation_sent`, `job_sent`, `job_finished` and
-`knowledge_synced`, each with one line of at most 200 characters; the last 100 are kept.
+`text_sent`, `conversation_received`, `conversation_sent`, `job_sent`, `job_finished`,
+`knowledge_synced`, `review_comment` and `review_followup`, each with one line of at most 200
+characters; the last 100 are kept.
 
 ## Errors
 
@@ -208,6 +238,7 @@ Errors are `{"error": "<code>"}` with the HTTP status, plus `"autonomy"` on the 
 refusals: `400` invalid input, `Host`, `checksum_mismatch` or `invalid_path`, `401
 unauthorized`, `403 scope_denied` or pairing errors, `404` (`unknown_*`), `409`
 (`request_id_conflict`, `desktop_autonomy_too_broad`, `autonomy_changed`, `invalid_transition`,
-`not_running`, `approval_already_resolved`), `410 job_expired`, `413 payload_too_large`, `422
+`not_running`, `approval_already_resolved`, `no_changes`, `followup_already_exists`),
+`410 job_expired`, `413` (`payload_too_large`, `review_too_large`), `422
 unsupported_task`, `429 too_many_attempts`, `503` (`no_workspace`, `desktop_not_ready`,
 `storage_unavailable`).

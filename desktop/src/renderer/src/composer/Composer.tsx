@@ -1,4 +1,4 @@
-import { ListChecks, ListPlus, LoaderCircle, Mic, Paperclip, Plus, RotateCcw, Send, Sparkles, Square, X } from 'lucide-react'
+import { ListChecks, ListPlus, LoaderCircle, Mic, Paperclip, Plus, RotateCcw, Send, Sparkles, Square, Users, X } from 'lucide-react'
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent, type CSSProperties, type DragEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 
 import type { ProviderProfile, UiCommand } from '../../../shared/api'
@@ -8,6 +8,8 @@ import { useOptionalI18n, useText } from '../i18n/I18nProvider'
 import { translate } from '../i18n/messages'
 import type { MessageKey } from '../i18n/messages'
 import { ComposerDraftStore, composerDraftScope } from '../state/composer-drafts'
+import { libraryName } from '../team/catalog'
+import { teamPayload, useTeamSettings } from '../team/team-settings'
 import { hasDroppedFiles, splitDroppedItems } from '../workspace/folder-drop'
 import { useVoiceRecorder, voiceInputSupported } from '../voice/voice'
 import { formatMention, matchSlashCommands, mentionAtCaret, parseSlashDraft, rankMentionPaths, recallHistory, type SlashCommand } from './suggestions'
@@ -161,6 +163,12 @@ export function Composer({
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>('default')
   // Plan first: the next task only reads and proposes; the bar below offers to carry it out.
   const [planFirst, setPlanFirst] = useState(false)
+  // Expert team: the next task is answered by the agent leading the experts from Settings.
+  const [teamMode, setTeamMode] = useState(false)
+  const teamSettings = useTeamSettings()
+  const team = teamPayload(teamSettings, (id) => libraryName(id, locale) ?? id)
+  const teamNames = team === 'auto' ? translate(locale, 'composer.teamAuto') : team.map((member) => member.name).join('、')
+  const teamHint = translate(locale, 'composer.teamHint', { names: teamNames })
   const [planStage, setPlanStage] = useState<{ sessionId: string | null; stage: 'sent' | 'running' | 'ready' } | null>(null)
   const [height, setHeight] = useState(MIN_COMPOSER_HEIGHT)
   const [resizing, setResizing] = useState(false)
@@ -435,6 +443,9 @@ export function Composer({
           attachmentIds: submittedAttachmentIds,
           ...(steering ? { turnId: activeTurnId, inputId } : selectedReasoningEffort !== 'default' ? { reasoningEffort: selectedReasoningEffort } : {}),
           ...(!steering && planFirst ? { planFirst: true } : {}),
+          ...(!steering && teamMode && team.length > 0
+            ? { team: team === 'auto' ? 'auto' : team.map((member) => ({ ...member })), teamReview: teamSettings.review }
+            : {}),
         },
       })
       if (!steering) setPlanStage(planFirst ? { sessionId: sessionId ?? null, stage: 'sent' } : null)
@@ -631,7 +642,7 @@ export function Composer({
       data-layout="bottom"
       aria-busy={importing}
       data-resizing={resizing ? 'true' : 'false'}
-      data-has-attachments={attachments.length > 0 || planFirst || planReady ? 'true' : 'false'}
+      data-has-attachments={attachments.length > 0 || planFirst || teamMode || planReady ? 'true' : 'false'}
       data-reference={providerLabel ? 'true' : 'false'}
       data-running={activeTurnId ? 'true' : 'false'}
       style={{ '--composer-height': `${height}px` } as CSSProperties}
@@ -663,6 +674,13 @@ export function Composer({
             <ListChecks size={14} aria-hidden="true" />
             <span className="attachment-name">{translate(locale, 'composer.planFirst')}</span>
             <button type="button" aria-label={translate(locale, 'composer.planFirstOff')} onClick={() => setPlanFirst(false)}><X size={13} /></button>
+          </span>
+        ) : null}
+        {teamMode ? (
+          <span className="attachment-chip composer-team-chip" title={teamHint}>
+            <Users size={14} aria-hidden="true" />
+            <span className="attachment-name">{translate(locale, 'composer.team')} · {teamNames}</span>
+            <button type="button" aria-label={translate(locale, 'composer.teamOff')} onClick={() => setTeamMode(false)}><X size={13} /></button>
           </span>
         ) : null}
         {attachments.map((attachment) => (
@@ -720,7 +738,10 @@ export function Composer({
               <button type="button" className="icon-button" aria-label={tx('Attach files')} title={tx(onAttach ? 'Attach files' : 'Attachments unavailable')} disabled={!onAttach} onClick={onAttach}><Paperclip size={16} /></button>
               <button type="button" className="icon-button composer-plan-toggle" aria-pressed={planFirst}
                 aria-label={translate(locale, 'composer.planFirst')} title={translate(locale, 'composer.planFirstHint')}
-                onClick={() => setPlanFirst((value) => !value)}><ListChecks size={16} /></button>
+                onClick={() => { setPlanFirst((value) => !value); setTeamMode(false) }}><ListChecks size={16} /></button>
+              <button type="button" className="icon-button composer-team-toggle" aria-pressed={teamMode}
+                aria-label={translate(locale, 'composer.team')} title={teamHint}
+                onClick={() => { setTeamMode((value) => !value); setPlanFirst(false) }}><Users size={16} /></button>
               <button type="button" className="icon-button composer-optimize-button" aria-label={tx('Optimize prompt')} title={tx('Optimize prompt')} disabled={disabled || submitting || optimizing || importing || !onOptimizePrompt || !draft.trim()} onClick={() => void optimize()}><Sparkles size={16} /></button>
               {previousDraft !== null ? <button type="button" className="icon-button" aria-label={tx('Restore original prompt')} title={tx('Restore original prompt')} disabled={submitting || optimizing} onClick={restorePreviousDraft}><RotateCcw size={15} /></button> : null}
               {activeTurnId ? <button type="button" className="composer-queue-action" aria-label={tx('Queue message')} title={translate(locale, 'composer.queueHint')} disabled={disabled || modelSwitching || optimizing || submitting || importing || !hasContent} onClick={(event) => {

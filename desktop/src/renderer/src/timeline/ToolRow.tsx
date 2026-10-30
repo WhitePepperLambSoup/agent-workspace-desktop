@@ -3,6 +3,7 @@ import { useContext, useEffect, useMemo, useState } from 'react'
 
 import { stepVerb, type FileBatchUndoView } from '../files/model'
 import { requestDocumentPreview } from '../office/preview-request'
+import { openWorkspaceFile } from '../preview/preview-request'
 import { TimelineActionsContext } from './actions-context'
 import type { ToolEntry } from './types'
 import { useOptionalI18n } from '../i18n/I18nProvider'
@@ -60,15 +61,75 @@ function BrowserToolDetail({ call }: { call: BrowserCall }) {
         {call.title ? <div><dt>{t('tool.browser.pageTitle')}</dt><dd>{call.title}</dd></div> : null}
         {call.url ? <div><dt>{t('tool.browser.url')}</dt><dd><code>{call.url}</code></dd></div> : null}
         {call.target && call.action !== 'navigate' ? <div><dt>{t('tool.browser.target')}</dt><dd><code>{call.target}</code></dd></div> : null}
-        {call.pdfPath ? <div><dt>{t('tool.browser.savedPdf')}</dt><dd><code>{call.pdfPath}</code></dd></div> : null}
+        {call.pdfPath ? <div><dt>{t('tool.browser.savedPdf')}</dt><dd><code>{call.pdfPath}</code> <button type="button" className="secondary-button" onClick={() => openWorkspaceFile(call.pdfPath!)}>{t('turnFiles.openFile')}</button></dd></div> : null}
       </dl>
-      {call.imagePath ? <figure className="browser-tool-figure"><WorkspaceThumbnail path={call.imagePath} /><figcaption><code>{call.imagePath}</code></figcaption></figure> : null}
+      {call.imagePath ? <figure className="browser-tool-figure"><WorkspaceThumbnail path={call.imagePath} /><figcaption><code>{call.imagePath}</code> <button type="button" className="secondary-button" onClick={() => openWorkspaceFile(call.imagePath!)}>{t('turnFiles.openFile')}</button></figcaption></figure> : null}
       {call.tabs.length > 0 ? (
         <ul className="browser-tool-tabs" aria-label={t('tool.browser.tabs')}>
           {call.tabs.map((tab, index) => <li key={`${tab.id}:${index}`}><strong>{tab.title || tab.url}</strong>{tab.title ? <small>{tab.url}</small> : null}</li>)}
         </ul>
       ) : null}
       {call.text ? <details className="browser-tool-text"><summary>{t('tool.browser.capturedText')}</summary><pre>{call.text}</pre></details> : null}
+    </div>
+  )
+}
+
+interface PageCheck {
+  url: string
+  title: string
+  loaded: boolean
+  error: string
+  screenshot: string | null
+  problems: Array<{ kind: 'console' | 'exception' | 'request' | 'http' | 'log' | 'note'; text: string }>
+}
+
+/** What check_page found on a page, from its result. */
+function pageCheck(entry: ToolEntry): PageCheck | null {
+  if (entry.name !== 'check_page' || entry.state !== 'settled') return null
+  let value: unknown = entry.result
+  if (typeof value === 'string') {
+    try { value = JSON.parse(value) } catch { return null }
+  }
+  if (!value || typeof value !== 'object') return null
+  const report = value as Record<string, unknown>
+  const list = (key: string): unknown[] => Array.isArray(report[key]) ? report[key] as unknown[] : []
+  const field = (item: unknown, name: string): string => item && typeof item === 'object' ? String((item as Record<string, unknown>)[name] ?? '') : ''
+  return {
+    url: String(report.url ?? ''),
+    title: String(report.title ?? ''),
+    loaded: report.loaded !== false,
+    error: String(report.error ?? ''),
+    screenshot: typeof report.screenshot === 'string' ? report.screenshot : null,
+    problems: [
+      ...list('exceptions').map((item) => ({ kind: 'exception' as const, text: String(item) })),
+      ...list('console').map((item) => ({ kind: 'console' as const, text: `${field(item, 'level')}: ${field(item, 'text')}` })),
+      ...list('failed_requests').map((item) => ({ kind: 'request' as const, text: `${field(item, 'error')} ${field(item, 'url')}` })),
+      ...list('http_errors').map((item) => ({ kind: 'http' as const, text: `${field(item, 'status')} ${field(item, 'url')}` })),
+      ...list('browser_log').map((item) => ({ kind: 'log' as const, text: `${field(item, 'level')}: ${field(item, 'text')}` })),
+      ...list('notes').map((item) => ({ kind: 'note' as const, text: String(item) })),
+    ],
+  }
+}
+
+function PageCheckDetail({ check }: { check: PageCheck }) {
+  const { t } = useOptionalI18n()
+  return (
+    <div className="browser-tool page-check">
+      <dl className="browser-tool-facts">
+        {check.title ? <div><dt>{t('tool.browser.pageTitle')}</dt><dd>{check.title}</dd></div> : null}
+        <div><dt>{t('tool.browser.url')}</dt><dd><code>{check.url}</code></dd></div>
+        {!check.loaded ? <div><dt>{t('tool.pageCheck.error')}</dt><dd><code>{check.error}</code></dd></div> : null}
+      </dl>
+      {check.problems.length > 0 ? (
+        <ul className="page-check-problems" aria-label={t('tool.pageCheck.problems')}>
+          {check.problems.map((problem, index) => (
+            <li key={`${problem.kind}:${index}`} data-kind={problem.kind}>
+              <span>{t(`tool.pageCheck.kind.${problem.kind}` as MessageKey)}</span>
+              <code>{problem.text}</code>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   )
 }
@@ -219,8 +280,10 @@ export function ToolRow({ entry }: { entry: ToolEntry }) {
   const delegated = useMemo(() => delegatedResults(entry), [entry])
   const batch = useMemo(() => fileBatch(entry), [entry])
   const phoneJob = useMemo(() => phoneJobState(entry), [entry])
+  const page = useMemo(() => pageCheck(entry), [entry])
   const summary = browser
     ? [actionLabel(browser.action), compactTarget(browser)].filter(Boolean).join(' · ')
+    : page ? (!page.loaded ? t('tool.pageCheck.notLoaded') : page.problems.length ? t('tool.pageCheck.found', { count: page.problems.length }) : t('tool.pageCheck.clean'))
     : office ? office.split(/[\\/]/).at(-1) ?? office
       : delegated ? t('tool.delegate.summary', { done: delegated.filter((item) => item.state === 'succeeded').length, total: delegated.length })
         : batch ? t('files.batch.changes', { count: batch.changes })
@@ -229,12 +292,12 @@ export function ToolRow({ entry }: { entry: ToolEntry }) {
   // The same plain-language name the approval shows, with the tool's own name beside it.
   const friendlyKey = `approval.tool.${entry.name}`
   const friendlyName = friendlyKey in zhCN ? t(friendlyKey as MessageKey) : null
-  const toolKind = browser ? 'browser' : office ? 'office' : entry.name === 'delegate_tasks' ? 'delegate' : entry.name === 'organize_files' ? 'files' : undefined
+  const toolKind = browser || page ? 'browser' : office ? 'office' : entry.name === 'delegate_tasks' ? 'delegate' : entry.name === 'organize_files' ? 'files' : undefined
   return (
     <section className="tool-row reading-surface" data-state={entry.state} data-tool={toolKind}>
       <button type="button" aria-expanded={open} aria-label={t('tool.label', { name: entry.name, state: localizeKnownStatus(locale, entry.state) })} onClick={() => setOpen((value) => !value)}>
         <ChevronRight size={14} className={open ? 'is-open' : ''} />
-        {browser ? <Globe size={14} /> : office ? <FileText size={14} /> : entry.name === 'delegate_tasks' ? <Users size={14} /> : entry.name === 'organize_files' ? <FolderInput size={14} /> : entry.name === 'phone_task' ? <Smartphone size={14} /> : <Wrench size={14} />}
+        {browser || entry.name === 'check_page' ? <Globe size={14} /> : office ? <FileText size={14} /> : entry.name === 'delegate_tasks' ? <Users size={14} /> : entry.name === 'organize_files' ? <FolderInput size={14} /> : entry.name === 'phone_task' ? <Smartphone size={14} /> : <Wrench size={14} />}
         {friendlyName ? <span>{friendlyName}<code className="tool-row-id">{entry.name}</code></span> : <span>{entry.name}</span>}
         {summary ? <span className="tool-row-summary" title={browser?.url ?? browser?.target ?? office ?? undefined}>{summary}</span> : null}
         <Status size={14} />
@@ -265,6 +328,12 @@ export function ToolRow({ entry }: { entry: ToolEntry }) {
           <FileBatchUndo batchId={batch.id} />
         </>
       ) : null}
+      {page?.screenshot ? (
+        <figure className="browser-tool-figure page-check-shot">
+          <WorkspaceThumbnail path={page.screenshot} />
+          <figcaption><code>{page.screenshot}</code> <button type="button" className="secondary-button" onClick={() => openWorkspaceFile(page.screenshot!)}>{t('turnFiles.openFile')}</button></figcaption>
+        </figure>
+      ) : null}
       {office ? <div className="tool-row-actions">
         <button type="button" className="secondary-button" onClick={() => requestDocumentPreview({ path: office })}>{t('office.preview')}</button>
         {previousSha256
@@ -273,7 +342,9 @@ export function ToolRow({ entry }: { entry: ToolEntry }) {
       </div> : null}
       {open ? (
         <div className="tool-detail">
-          {browser ? <><BrowserToolDetail call={browser} /><details className="tool-raw"><summary>{t('tool.browser.raw')}</summary>{raw}</details></> : raw}
+          {browser ? <><BrowserToolDetail call={browser} /><details className="tool-raw"><summary>{t('tool.browser.raw')}</summary>{raw}</details></>
+            : page ? <><PageCheckDetail check={page} /><details className="tool-raw"><summary>{t('tool.browser.raw')}</summary>{raw}</details></>
+              : raw}
         </div>
       ) : null}
     </section>

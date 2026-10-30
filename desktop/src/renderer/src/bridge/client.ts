@@ -26,13 +26,40 @@ export class WorkbenchBridgeClient {
   private workspaceSessionSwitch: Promise<void> = Promise.resolve()
   private workspaceSessionSwitchGeneration = 0
 
+  // The terminal panel's output: many small events, handed to the panel without the store.
+  private readonly shellListeners = new Set<(event: UiEvent) => void>()
+  // The debugger's state and output, for the debug panel.
+  private readonly debugListeners = new Set<(event: UiEvent) => void>()
+
   constructor(private readonly api: AgentWorkspaceApi) {
     this.store = createWorkbenchStore({ requestResync: () => void this.bootstrap() })
+  }
+
+  onDebugEvent(listener: (event: UiEvent) => void): () => void {
+    this.debugListeners.add(listener)
+    return () => {
+      this.debugListeners.delete(listener)
+    }
+  }
+
+  onShellEvent(listener: (event: UiEvent) => void): () => void {
+    this.shellListeners.add(listener)
+    return () => {
+      this.shellListeners.delete(listener)
+    }
   }
 
   async start(): Promise<void> {
     if (!this.unsubscribe) {
       this.unsubscribe = this.api.subscribe((event) => {
+        if (event.type === 'shell.output' || event.type === 'shell.exited') {
+          for (const listener of this.shellListeners) listener(event)
+          return
+        }
+        if (event.type === 'debug.state' || event.type === 'debug.output') {
+          for (const listener of this.debugListeners) listener(event)
+          return
+        }
         const openedSessionId = event.sessionId ?? (typeof event.payload.sessionId === 'string' ? event.payload.sessionId : null)
         if (event.type === 'session.opened' && openedSessionId && event.payload.activated !== false) {
           this.settledSessionActivations.add(openedSessionId)
@@ -364,6 +391,18 @@ export class WorkbenchBridgeClient {
 
   async setTaskLimits(input: { maxCostUsd: number | null; maxTokens: number | null }): Promise<UiResponse> {
     return this.invoke({ type: 'limits.set', payload: { maxCostUsd: input.maxCostUsd, maxTokens: input.maxTokens }, sessionId: null })
+  }
+
+  async listSkills(): Promise<UiResponse> {
+    return this.invoke({ type: 'skills.list', payload: {}, sessionId: null })
+  }
+
+  async setSkillEnabled(key: string, enabled: boolean): Promise<UiResponse> {
+    return this.invoke({ type: 'skills.set', payload: { key, enabled }, sessionId: null })
+  }
+
+  async openSkillsFolder(): Promise<UiResponse> {
+    return this.invoke({ type: 'skills.folder.open', payload: {}, sessionId: null })
   }
 
   async listMemories(query = '', limit = 200): Promise<UiResponse> {
@@ -766,6 +805,11 @@ export class WorkbenchBridgeClient {
     })
   }
 
+  /** The model reviews a snapshot; its findings come back as comments by "ai". */
+  async reviewWithModel(snapshotId: string, language: string): Promise<UiResponse> {
+    return this.invoke({ type: 'workspace.review.ai', payload: { snapshotId, language }, sessionId: this.selectedSessionId })
+  }
+
   async getReviewSnapshot(snapshotId: string): Promise<UiResponse> {
     return this.invoke({
       type: 'workspace.review.get',
@@ -968,8 +1012,231 @@ export class WorkbenchBridgeClient {
     return this.invoke({ type: 'session.rewind', payload: { sessionId, messageId, apply }, sessionId: null })
   }
 
+  /** What a turn changed in one file the agent wrote (its list names the turn's record). */
+  async turnFileDiff(sessionId: string, eventId: string, path: string): Promise<UiResponse> {
+    return this.invoke({ type: 'turn.files.diff', payload: { sessionId, eventId, path }, sessionId: null })
+  }
+
+  /** Files a turn created or changed: a preview, or (apply) put back as they were before it. */
+  /** Put one part (a hunk of the diff shown) of a turn's change back, while the file is still as shown. */
+  async undoTurnHunk(sessionId: string, eventId: string, path: string, hunk: number, sha256: string): Promise<UiResponse> {
+    return this.invoke({ type: 'turn.files.hunk.undo', payload: { sessionId, eventId, path, hunk, sha256 }, sessionId: null })
+  }
+
+  async undoTurnFiles(sessionId: string, eventId: string, paths: readonly string[] | null, apply: boolean): Promise<UiResponse> {
+    const payload: Record<string, JsonValue> = { sessionId, eventId, apply }
+    if (paths) payload.paths = [...paths]
+    return this.invoke({ type: 'turn.files.undo', payload, sessionId: null })
+  }
+
   async scanWatchedFolders(): Promise<UiResponse> {
     return this.invoke({ type: 'knowledge.watch.scan', payload: {}, sessionId: null })
+  }
+
+  /** The language servers the app knows: which are found, which can be installed from here. */
+  async codeServers(): Promise<UiResponse> {
+    return this.invoke({ type: 'code.servers', payload: {}, sessionId: null })
+  }
+
+  async installCodeServer(id: string): Promise<UiResponse> {
+    return this.invoke({ type: 'code.servers.install', payload: { id }, sessionId: null })
+  }
+
+  /** The language server's problems in a file of the open folder (its unsaved text when given). */
+  async codeDiagnostics(path: string, text?: string): Promise<UiResponse> {
+    return this.invoke({ type: 'code.diagnostics', payload: text === undefined ? { path } : { path, text }, sessionId: null })
+  }
+
+  /** Where the symbol at a position (0-based line and character) is defined. */
+  async codeDefinition(path: string, line: number, character: number): Promise<UiResponse> {
+    return this.invoke({ type: 'code.definition', payload: { path, line, character }, sessionId: null })
+  }
+
+  async codeHover(path: string, line: number, character: number): Promise<UiResponse> {
+    return this.invoke({ type: 'code.hover', payload: { path, line, character }, sessionId: null })
+  }
+
+  /** The model's replacement for the selected code (Ctrl+K in the editor). */
+  async rewriteCode(request: { path: string; language: string; before: string; selection: string; after: string; instruction: string }): Promise<UiResponse> {
+    return this.invoke({ type: 'editor.rewrite', payload: { ...request }, sessionId: null })
+  }
+
+  /** Code to insert at the cursor (DeepSeek's fill-in-the-middle; unavailable for other providers). */
+  async completeCode(path: string, prefix: string, suffix: string): Promise<UiResponse> {
+    return this.invoke({ type: 'editor.complete', payload: { path, prefix, suffix }, sessionId: null })
+  }
+
+  /** The open folder's checks and rules (.agent/project.json), suggestions and latest results. */
+  async projectSettings(): Promise<UiResponse> {
+    return this.invoke({ type: 'project.get', payload: {}, sessionId: null })
+  }
+
+  async saveProjectSettings(config: { [key: string]: JsonValue }): Promise<UiResponse> {
+    return this.invoke({ type: 'project.set', payload: { config }, sessionId: null })
+  }
+
+  /** Accept the commands of a settings file that came with the folder. */
+  async trustProjectSettings(): Promise<UiResponse> {
+    return this.invoke({ type: 'project.trust', payload: {}, sessionId: null })
+  }
+
+  async runProjectChecks(names?: string[]): Promise<UiResponse> {
+    return this.invoke({ type: 'project.checks.run', payload: names ? { names } : {}, sessionId: null })
+  }
+
+  /** The TeX engines found, the editor's settings, its rules and starter documents. */
+  async latexStatus(refresh = false): Promise<UiResponse> {
+    return this.invoke({ type: 'latex.status', payload: refresh ? { refresh } : {}, sessionId: null })
+  }
+
+  async setLatexSettings(settings: { engine?: string; autoCompile?: boolean; rules?: Record<string, boolean> }): Promise<UiResponse> {
+    const payload: Record<string, JsonValue> = {}
+    if (settings.engine !== undefined) payload.engine = settings.engine
+    if (settings.autoCompile !== undefined) payload.autoCompile = settings.autoCompile
+    if (settings.rules !== undefined) payload.rules = { ...settings.rules }
+    return this.invoke({ type: 'latex.settings.set', payload, sessionId: null })
+  }
+
+  /** Compile the document a .tex file belongs to; the PDF lands beside it. */
+  async compileLatex(path: string, engine?: string): Promise<UiResponse> {
+    return this.invoke({ type: 'latex.compile', payload: engine ? { path, engine } : { path }, sessionId: null })
+  }
+
+  async cancelLatex(): Promise<UiResponse> {
+    return this.invoke({ type: 'latex.cancel', payload: {}, sessionId: null })
+  }
+
+  /** The source rules' findings for a file (its unsaved text when given), with labels and keys. */
+  async checkLatex(path: string, content?: string): Promise<UiResponse> {
+    return this.invoke({ type: 'latex.check', payload: content === undefined ? { path } : { path, content }, sessionId: null })
+  }
+
+  async fixLatex(rule: string, content: string): Promise<UiResponse> {
+    return this.invoke({ type: 'latex.fix', payload: { rule, content }, sessionId: null })
+  }
+
+  /** Where a source line is in the PDF. */
+  async latexForward(path: string, line: number): Promise<UiResponse> {
+    return this.invoke({ type: 'latex.synctex', payload: { path, direction: 'forward', line }, sessionId: null })
+  }
+
+  /** The source line behind a point of a PDF page (PDF points from the top left). */
+  async latexInverse(path: string, page: number, x: number, y: number): Promise<UiResponse> {
+    return this.invoke({ type: 'latex.synctex', payload: { path, direction: 'inverse', page, x, y }, sessionId: null })
+  }
+
+  async installTectonic(): Promise<UiResponse> {
+    return this.invoke({ type: 'latex.engine.install', payload: {}, sessionId: null })
+  }
+
+  async createLatexDocument(template: string, directory: string): Promise<UiResponse> {
+    return this.invoke({ type: 'latex.template.create', payload: { template, directory }, sessionId: null })
+  }
+
+  /** The open folder's reference library (filtered by a query when given). */
+  async listReferences(query = ''): Promise<UiResponse> {
+    return this.invoke({ type: 'references.list', payload: query ? { query } : {}, sessionId: null })
+  }
+
+  /** Works the scholarly databases find; each carries an id to add it by. */
+  async searchReferences(query: string, limit = 10): Promise<UiResponse> {
+    return this.invoke({ type: 'references.search', payload: { query, limit }, sessionId: null })
+  }
+
+  /** Zotero's items (a collection's when given) while Zotero runs on this computer. */
+  async zoteroReferences(collection?: string): Promise<UiResponse> {
+    return this.invoke({ type: 'references.zotero', payload: collection ? { collection } : {}, sessionId: null })
+  }
+
+  async addReferences(ids: readonly string[]): Promise<UiResponse> {
+    return this.invoke({ type: 'references.add', payload: { ids: [...ids] }, sessionId: null })
+  }
+
+  async removeReferences(keys: readonly string[]): Promise<UiResponse> {
+    return this.invoke({ type: 'references.remove', payload: { keys: [...keys] }, sessionId: null })
+  }
+
+  /** Works from a BibTeX, RIS, EndNote, NoteExpress, CSL-JSON or GB/T 7714 file. */
+  async importReferences(path: string): Promise<UiResponse> {
+    return this.invoke({ type: 'references.import', payload: { path }, sessionId: null })
+  }
+
+  /** BibTeX, RIS or a styled list of the given works (all without keys); saved under exports/ with save. */
+  async exportReferences(format: 'bibtex' | 'ris' | 'list', options: { style?: string; keys?: readonly string[]; save?: boolean } = {}): Promise<UiResponse> {
+    const payload: Record<string, JsonValue> = { format }
+    if (options.style) payload.style = options.style
+    if (options.keys?.length) payload.keys = [...options.keys]
+    if (options.save) payload.save = true
+    return this.invoke({ type: 'references.export', payload, sessionId: null })
+  }
+
+  /** Each work looked up in the scholarly databases (all without keys). */
+  async checkReferences(keys?: readonly string[]): Promise<UiResponse> {
+    return this.invoke({ type: 'references.check', payload: keys?.length ? { keys: [...keys] } : {}, sessionId: null })
+  }
+
+  /** The speech-to-text service the agent's meeting transcription uses (Settings → Voice). */
+  async setSpeech(providerId: string | null, model: string): Promise<UiResponse> {
+    return this.invoke({ type: 'speech.set', payload: { providerId, model }, sessionId: null })
+  }
+
+  /** Built-in document templates and the user's own, with their {{fields}}. */
+  async listTemplates(): Promise<UiResponse> {
+    return this.invoke({ type: 'templates.list', payload: {}, sessionId: null })
+  }
+
+  /** A new file of the open folder (or one of its folders) from a template. */
+  async createFromTemplate(templateId: string, values: Readonly<Record<string, string>>, folder = ''): Promise<UiResponse> {
+    const payload: Record<string, JsonValue> = { templateId, values: { ...values } }
+    if (folder) payload.folder = folder
+    return this.invoke({ type: 'templates.create', payload, sessionId: null })
+  }
+
+  async openTemplatesFolder(): Promise<UiResponse> {
+    return this.invoke({ type: 'templates.folder.open', payload: {}, sessionId: null })
+  }
+
+  /** One quick action on copied text: polish, translate, summarize, official, reply. */
+  async quickRun(action: string, text: string): Promise<UiResponse> {
+    return this.invoke({ type: 'quick.run', payload: { action, text }, sessionId: null })
+  }
+
+  /** A copied table screenshot (PNG, base64) as a workbook under the folder's exports/. */
+  async quickTable(image: string): Promise<UiResponse> {
+    return this.invoke({ type: 'quick.table', payload: { image }, sessionId: null })
+  }
+
+  /** The scientific Python environment: installed or not, versions, a running install. */
+  async scienceStatus(): Promise<UiResponse> {
+    return this.invoke({ type: 'science.status', payload: {}, sessionId: null })
+  }
+
+  /** Install (or repair) the scientific environment; resolves when it is done. */
+  async installScience(): Promise<UiResponse> {
+    return this.invoke({ type: 'science.install', payload: {}, sessionId: null })
+  }
+
+  async cancelScience(): Promise<UiResponse> {
+    return this.invoke({ type: 'science.cancel', payload: {}, sessionId: null })
+  }
+
+  async removeScience(): Promise<UiResponse> {
+    return this.invoke({ type: 'science.remove', payload: {}, sessionId: null })
+  }
+
+  /** The point map saved beside a figure (figures/x.png → figures/x.points.json). */
+  async figurePoints(path: string): Promise<UiResponse> {
+    return this.invoke({ type: 'figures.points', payload: { path }, sessionId: null })
+  }
+
+  /** Write dragged points to a corrected copy of the figure's data and draw it again. */
+  async correctFigure(path: string, edits: ReadonlyArray<{ row: number; column: string; value: number | string | null }>, note: string): Promise<UiResponse> {
+    return this.invoke({ type: 'figures.correct', payload: { path, edits: edits.map((edit) => ({ ...edit })), note }, sessionId: null })
+  }
+
+  /** Put library works into the .bib file of the document a .tex file belongs to. */
+  async citeReferences(path: string, keys: readonly string[]): Promise<UiResponse> {
+    return this.invoke({ type: 'references.cite', payload: { path, keys: [...keys] }, sessionId: null })
   }
 
   async listCollaborations(limit = 50): Promise<UiResponse> {
@@ -1089,6 +1356,166 @@ export class WorkbenchBridgeClient {
     return this.invoke({ type: 'terminal.stop', payload, sessionId: this.selectedSessionId })
   }
 
+  async gitStatus(): Promise<UiResponse> {
+    return this.invoke({ type: 'git.status', payload: {}, sessionId: null })
+  }
+
+  async createGitBranch(name: string): Promise<UiResponse> {
+    return this.invoke({ type: 'git.branch.create', payload: { name }, sessionId: null })
+  }
+
+  async switchGitBranch(name: string): Promise<UiResponse> {
+    return this.invoke({ type: 'git.branch.switch', payload: { name }, sessionId: null })
+  }
+
+  async writeCommitMessage(paths: string[], language: string): Promise<UiResponse> {
+    return this.invoke({ type: 'git.message', payload: { paths, language }, sessionId: null })
+  }
+
+  async takeConflictSide(path: string, side: 'ours' | 'theirs'): Promise<UiResponse> {
+    return this.invoke({ type: 'git.conflict.take', payload: { path, side }, sessionId: null })
+  }
+
+  async markConflictResolved(path: string): Promise<UiResponse> {
+    return this.invoke({ type: 'git.conflict.resolved', payload: { path }, sessionId: null })
+  }
+
+  async finishGitOperation(action: 'continue' | 'abort'): Promise<UiResponse> {
+    return this.invoke({ type: 'git.finish', payload: { action }, sessionId: null })
+  }
+
+  async ciRuns(branch?: string): Promise<UiResponse> {
+    return this.invoke({ type: 'git.ci.runs', payload: branch ? { branch } : {}, sessionId: null })
+  }
+
+  async ciLog(run: number | string): Promise<UiResponse> {
+    return this.invoke({ type: 'git.ci.log', payload: { run }, sessionId: null })
+  }
+
+  async gitIssues(search = ''): Promise<UiResponse> {
+    return this.invoke({ type: 'git.issues', payload: search ? { search } : {}, sessionId: null })
+  }
+
+  async gitIssue(number: number): Promise<UiResponse> {
+    return this.invoke({ type: 'git.issue', payload: { number }, sessionId: null })
+  }
+
+  async listSpecs(): Promise<UiResponse> {
+    return this.invoke({ type: 'spec.list', payload: {}, sessionId: null })
+  }
+
+  async createSpec(title: string, goal: string): Promise<UiResponse> {
+    return this.invoke({ type: 'spec.create', payload: { title, goal }, sessionId: null })
+  }
+
+  async getSpec(id: string): Promise<UiResponse> {
+    return this.invoke({ type: 'spec.get', payload: { id }, sessionId: null })
+  }
+
+  async approveSpec(id: string, step: string): Promise<UiResponse> {
+    return this.invoke({ type: 'spec.approve', payload: { id, step }, sessionId: null })
+  }
+
+  async reopenSpec(id: string, step: string): Promise<UiResponse> {
+    return this.invoke({ type: 'spec.reopen', payload: { id, step }, sessionId: null })
+  }
+
+  async specPrompt(id: string, step: string, language: string, task?: string): Promise<UiResponse> {
+    const payload: Record<string, JsonValue> = { id, step, language }
+    if (task) payload.task = task
+    return this.invoke({ type: 'spec.prompt', payload, sessionId: null })
+  }
+
+  async tourMap(): Promise<UiResponse> {
+    return this.invoke({ type: 'tour.map', payload: {}, sessionId: null })
+  }
+
+  async tourGet(): Promise<UiResponse> {
+    return this.invoke({ type: 'tour.get', payload: {}, sessionId: null })
+  }
+
+  async writeTour(language: string): Promise<UiResponse> {
+    return this.invoke({ type: 'tour.write', payload: { language }, sessionId: null })
+  }
+
+  async debugStatus(): Promise<UiResponse> {
+    return this.invoke({ type: 'debug.status', payload: {}, sessionId: null })
+  }
+
+  async installDebugpy(): Promise<UiResponse> {
+    return this.invoke({ type: 'debug.install', payload: {}, sessionId: null })
+  }
+
+  async startDebug(input: { path?: string; module?: string; args?: string[]; breakpoints: Record<string, number[]> }): Promise<UiResponse> {
+    const payload: Record<string, JsonValue> = { breakpoints: input.breakpoints, args: input.args ?? [] }
+    if (input.path) payload.path = input.path
+    if (input.module) payload.module = input.module
+    return this.invoke({ type: 'debug.start', payload, sessionId: null })
+  }
+
+  async debugControl(action: 'continue' | 'next' | 'stepIn' | 'stepOut' | 'pause', threadId?: number): Promise<UiResponse> {
+    const payload: Record<string, JsonValue> = { action }
+    if (threadId !== undefined) payload.threadId = threadId
+    return this.invoke({ type: 'debug.control', payload, sessionId: null })
+  }
+
+  async debugStack(threadId?: number): Promise<UiResponse> {
+    return this.invoke({ type: 'debug.stack', payload: threadId !== undefined ? { threadId } : {}, sessionId: null })
+  }
+
+  async debugScopes(frameId: number): Promise<UiResponse> {
+    return this.invoke({ type: 'debug.scopes', payload: { frameId }, sessionId: null })
+  }
+
+  async debugVariables(reference: number): Promise<UiResponse> {
+    return this.invoke({ type: 'debug.variables', payload: { reference }, sessionId: null })
+  }
+
+  async debugEvaluate(expression: string, frameId?: number): Promise<UiResponse> {
+    const payload: Record<string, JsonValue> = { expression }
+    if (frameId !== undefined) payload.frameId = frameId
+    return this.invoke({ type: 'debug.evaluate', payload, sessionId: null })
+  }
+
+  async setDebugBreakpoints(path: string, lines: number[]): Promise<UiResponse> {
+    return this.invoke({ type: 'debug.breakpoints', payload: { path, lines }, sessionId: null })
+  }
+
+  async stopDebug(): Promise<UiResponse> {
+    return this.invoke({ type: 'debug.stop', payload: {}, sessionId: null })
+  }
+
+  async listShells(): Promise<UiResponse> {
+    return this.invoke({ type: 'shell.list', payload: {}, sessionId: null })
+  }
+
+  async startShell(input: { program?: string; cwd?: string; columns: number; rows: number }): Promise<UiResponse> {
+    const payload: Record<string, JsonValue> = { columns: input.columns, rows: input.rows }
+    if (input.program) payload.program = input.program
+    if (input.cwd) payload.cwd = input.cwd
+    return this.invoke({ type: 'shell.start', payload, sessionId: null })
+  }
+
+  async sendShellInput(shellId: string, data: string): Promise<UiResponse> {
+    return this.invoke({ type: 'shell.input', payload: { shellId, data }, sessionId: null })
+  }
+
+  async resizeShell(shellId: string, columns: number, rows: number): Promise<UiResponse> {
+    return this.invoke({ type: 'shell.resize', payload: { shellId, columns, rows }, sessionId: null })
+  }
+
+  async stopShell(shellId: string): Promise<UiResponse> {
+    return this.invoke({ type: 'shell.stop', payload: { shellId }, sessionId: null })
+  }
+
+  async closeShell(shellId: string): Promise<UiResponse> {
+    return this.invoke({ type: 'shell.close', payload: { shellId }, sessionId: null })
+  }
+
+  async replayShell(shellId: string): Promise<UiResponse> {
+    return this.invoke({ type: 'shell.replay', payload: { shellId }, sessionId: null })
+  }
+
   async listProviders(): Promise<UiResponse> {
     return this.invoke({ type: 'provider.list', payload: {}, sessionId: null })
   }
@@ -1177,6 +1604,8 @@ export class WorkbenchBridgeClient {
     model?: string,
     // Read-only tools and a plan for the user to approve before anything changes.
     planFirst = false,
+    // The agent leads these experts for this turn; review: they check each other's findings.
+    team?: { members: 'auto' | readonly { id: string; name: string; brief?: string }[]; review: boolean },
   ): Promise<UiResponse> {
     return this.invoke({
       type: 'turn.start',
@@ -1189,6 +1618,7 @@ export class WorkbenchBridgeClient {
         ...(reasoningEffort ? { reasoningEffort } : {}),
         ...(model ? { model } : {}),
         ...(planFirst ? { planFirst: true } : {}),
+        ...(team ? { team: team.members === 'auto' ? 'auto' : team.members.map((member) => ({ ...member })), teamReview: team.review } : {}),
       },
       sessionId,
     })

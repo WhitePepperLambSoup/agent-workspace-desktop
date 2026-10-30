@@ -1,7 +1,9 @@
-import { AlertTriangle, Check, Copy, ExternalLink, Eye, FileEdit, MessageSquarePlus, Save, Smartphone, X } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AlertTriangle, Bug, Check, Copy, ExternalLink, Eye, FileEdit, MessageSquarePlus, Save, Smartphone, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import { useOptionalI18n } from '../i18n/I18nProvider'
+import { isDebuggable } from './breakpoints'
+import { CodeView, type CodeAi, type CodeIntel, type CodeLocation, type CodeViewHandle } from './CodeView'
 
 export interface EditorTab {
   path: string
@@ -27,6 +29,24 @@ interface CodeEditorProps {
   onOpenPdf?: (path: string) => void
   /** Put the open file in a paired phone's inbox. */
   onSendToPhone?: (path: string) => void
+  /** An editor of its own for some files (LaTeX); null keeps the plain one. */
+  renderBody?: (tab: EditorTab) => ReactNode | null
+  /** The language server's problems, definitions and types for the open folder. */
+  intel?: CodeIntel
+  /** The model's help: Ctrl+K rewrites the selection; completion as you type (Tab accepts). */
+  ai?: CodeAi
+  completion?: boolean
+  /** A definition in another file, or outside the folder. */
+  onOpenLocation?: (location: CodeLocation) => void
+  /** Where the editor of the active file moves to when it opens (0-based), once. */
+  reveal?: { path: string; line: number; character: number } | null
+  /** Breakpoints of the folder's files, where the debugger stopped, and starting it. */
+  debug?: {
+    breakpoints(path: string): readonly number[]
+    onBreakpointsChange(path: string, lines: number[]): void
+    paused: { path: string; line: number } | null
+    onDebug?(path: string): void
+  }
 }
 
 export function CodeEditor({
@@ -39,12 +59,18 @@ export function CodeEditor({
   onSendToAgent,
   onOpenPdf,
   onSendToPhone,
+  renderBody,
+  intel,
+  ai,
+  completion,
+  onOpenLocation,
+  reveal,
+  debug,
 }: CodeEditorProps) {
   const { t } = useOptionalI18n()
   const [editMode, setEditMode] = useState(true)
   const [copied, setCopied] = useState(false)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const lineNumbersRef = useRef<HTMLDivElement>(null)
+  const codeView = useRef<CodeViewHandle>(null)
 
   const activeTab = useMemo(
     () => tabs.find((tab) => tab.path === activeTabPath),
@@ -62,42 +88,12 @@ export function CodeEditor({
     return activeTab.content.split('\n').length
   }, [activeTab])
 
-  const lineNumbers = useMemo(() => {
-    return Array.from({ length: Math.max(1, lineCount) }, (_, i) => i + 1)
-  }, [lineCount])
-
-  // Handle Ctrl+S / Cmd+S save shortcut
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (isReadOnly) return
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        e.preventDefault()
-        if (activeTab && activeTab.dirty && !activeTab.saving) {
-          void onSave(activeTab.path)
-        }
-      } else if (e.key === 'Tab') {
-        e.preventDefault()
-        const textarea = e.currentTarget
-        const start = textarea.selectionStart
-        const end = textarea.selectionEnd
-        const val = textarea.value
-        const newVal = val.substring(0, start) + '  ' + val.substring(end)
-        if (activeTab) {
-          onChangeContent(activeTab.path, newVal)
-        }
-        setTimeout(() => {
-          textarea.selectionStart = textarea.selectionEnd = start + 2
-        }, 0)
-      }
-    },
-    [activeTab, isReadOnly, onSave, onChangeContent],
-  )
-
-  const handleScroll = (): void => {
-    if (textareaRef.current && lineNumbersRef.current) {
-      lineNumbersRef.current.scrollTop = textareaRef.current.scrollTop
-    }
-  }
+  // A definition opened in this file: move there once its editor is up.
+  useEffect(() => {
+    if (!reveal || reveal.path !== activeTab?.path) return
+    const timer = window.setTimeout(() => codeView.current?.goTo(reveal.line + 1, reveal.character), 0)
+    return () => window.clearTimeout(timer)
+  }, [reveal, activeTab?.path])
 
   const handleCopy = async (): Promise<void> => {
     if (!activeTab) return
@@ -125,6 +121,7 @@ export function CodeEditor({
       </div>
     )
   }
+  const customBody = activeTab ? renderBody?.(activeTab) ?? null : null
 
   return (
     <div className="code-editor-container" aria-label={t('workspace.editor')}>
@@ -162,7 +159,8 @@ export function CodeEditor({
         })}
       </div>
 
-      {activeTab ? (
+      {customBody}
+      {activeTab && customBody === null ? (
         <>
           {/* Editor action toolbar */}
           <div className="code-editor-toolbar">
@@ -202,6 +200,19 @@ export function CodeEditor({
                 >
                   {copied ? <Check size={13} /> : <Copy size={13} />}
                   <span>{copied ? t('common.copied') : t('common.copy')}</span>
+                </button>
+              ) : null}
+
+              {debug?.onDebug && isDebuggable(activeTab.path) ? (
+                <button
+                  type="button"
+                  className="toolbar-action-btn"
+                  aria-label={t('debug.start')}
+                  title={t('debug.startShortcut')}
+                  onClick={() => debug.onDebug!(activeTab.path)}
+                >
+                  <Bug size={13} />
+                  <span>{t('debug.start')}</span>
                 </button>
               ) : null}
 
@@ -271,30 +282,28 @@ export function CodeEditor({
                 ) : <p>{t('workspace.binaryFileWarning')}</p>}
               </div>
             ) : editMode ? (
-              <div className="editor-textarea-wrapper">
-                <div ref={lineNumbersRef} className="editor-line-numbers" aria-hidden="true">
-                  {lineNumbers.map((num) => (
-                    <div key={num} className="line-number">{num}</div>
-                  ))}
-                </div>
-                <textarea
-                  ref={textareaRef}
-                  className="editor-textarea"
-                  aria-label={activeTab.path}
-                  value={activeTab.content}
-                  readOnly={isReadOnly}
-                  onChange={(e) => {
-                    if (isReadOnly) return
-                    onChangeContent(activeTab.path, e.target.value)
-                  }}
-                  onKeyDown={handleKeyDown}
-                  onScroll={handleScroll}
-                  spellCheck={false}
-                  autoCapitalize="off"
-                  autoComplete="off"
-                  autoCorrect="off"
-                />
-              </div>
+              <CodeView
+                key={activeTab.path}
+                ref={codeView}
+                path={activeTab.path}
+                value={activeTab.content}
+                readOnly={isReadOnly}
+                label={activeTab.path}
+                onChange={(value) => {
+                  if (!isReadOnly) onChangeContent(activeTab.path, value)
+                }}
+                onSave={() => {
+                  // Also while a save is on its way: the newer text is written once that one is back.
+                  if (activeTab.dirty && !isReadOnly) void onSave(activeTab.path)
+                }}
+                intel={intel}
+                ai={ai}
+                completion={completion}
+                onOpenLocation={onOpenLocation}
+                breakpoints={debug && isDebuggable(activeTab.path) ? debug.breakpoints(activeTab.path) : undefined}
+                onBreakpointsChange={debug && isDebuggable(activeTab.path) ? (lines) => debug.onBreakpointsChange(activeTab.path, lines) : undefined}
+                pausedLine={debug?.paused?.path === activeTab.path ? debug.paused.line : null}
+              />
             ) : (
               <div className="editor-preview-wrapper">
                 <pre className="editor-preview-pre">

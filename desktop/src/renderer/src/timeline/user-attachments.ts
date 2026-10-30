@@ -3,6 +3,39 @@ export interface UserAttachmentDisplay {
   filenames: readonly string[]
 }
 
+/** The first line of the message the app sends when the folder's checks failed after a turn
+ * (ui_gateway/gateway_project.py CHECKS_MARKER): shown as a notice, kept out of prompt history. */
+export const CHECKS_MARKER = '<!-- agent-workspace:checks -->'
+
+/** The first line of a prompt the Specs tab sends (coding/specs.py SPEC_MARKER); the second is
+ * a comment with the spec, its step and task. Shown as a notice, kept out of prompt history. */
+export const SPEC_MARKER = '<!-- agent-workspace:spec -->'
+
+export interface SpecPromptMeta {
+  spec: string
+  title: string
+  step: string
+  task: string | null
+}
+
+export function specPromptMeta(text: string): SpecPromptMeta | null {
+  if (!text.startsWith(SPEC_MARKER)) return null
+  const line = text.slice(SPEC_MARKER.length).trimStart().split('\n', 1)[0] ?? ''
+  const match = /^<!-- (\{.*\}) -->$/.exec(line)
+  if (!match) return null
+  try {
+    const meta = JSON.parse(match[1]!) as Record<string, unknown>
+    return {
+      spec: String(meta.spec ?? ''),
+      title: String(meta.title ?? ''),
+      step: String(meta.step ?? ''),
+      task: typeof meta.task === 'string' ? meta.task : null,
+    }
+  } catch {
+    return null
+  }
+}
+
 const MAX_ATTACHMENTS = 8
 const MAX_FILENAME_LENGTH = 240
 const MAX_REFERENCE_TAIL = 4_096

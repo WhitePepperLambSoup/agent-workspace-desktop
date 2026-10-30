@@ -1,16 +1,25 @@
-import { Check, Copy, GitBranch, GitCompare, History, Paperclip, PencilLine, RefreshCw, Smartphone, SquarePen, Volume2, VolumeX } from 'lucide-react'
+import { Check, ClipboardList, Copy, FileDown, GitBranch, GitCompare, History, ListChecks, Paperclip, PencilLine, RefreshCw, Smartphone, SquarePen, Volume2, VolumeX } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { SafeMarkdown } from '../markdown/SafeMarkdown'
 import { DiffBlock } from './DiffBlock'
 import { NoticeRow, type NoticeActions } from './NoticeRow'
 import { ToolRow } from './ToolRow'
+import { TurnFilesCard } from './TurnFilesCard'
 import type { MessageEntry, TimelineEntry } from './types'
 import { useOptionalI18n } from '../i18n/I18nProvider'
 import type { MessageKey } from '../i18n/messages'
-import { parseUserAttachmentReferences } from './user-attachments'
+import { CHECKS_MARKER, parseUserAttachmentReferences, type SpecPromptMeta, specPromptMeta } from './user-attachments'
 import { speak } from '../voice/voice'
+import { openWorkspaceFile } from '../preview/preview-request'
+import { exportAnswer, type ExportFormat } from './export-answer'
 import './user-attachments.css'
+import './message-export.css'
+
+/** A file an answer links to (a figure, a paper at a page): shown in the window. */
+function openAnswerFile(path: string, page?: number): void {
+  openWorkspaceFile(path, undefined, page)
+}
 
 const ROLE_KEYS: Record<'user' | 'assistant' | 'reasoning' | 'system', MessageKey> = {
   user: 'timeline.user',
@@ -89,6 +98,18 @@ function MessageActionBar({ text, actions, readable }: { text: string; actions?:
     if (resetTimer.current) clearTimeout(resetTimer.current)
     resetTimer.current = setTimeout(() => setCopyState('idle'), 1600)
   }
+  const [exportOpen, setExportOpen] = useState(false)
+  const [exported, setExported] = useState<string | null>(null)
+  const saveAs = async (format: ExportFormat, from: Element): Promise<void> => {
+    setExportOpen(false)
+    try {
+      const rendered = from.closest('.timeline-row')?.querySelector('.markdown-body') ?? null
+      const path = await exportAnswer(format, text, rendered)
+      setExported(path ? t('timeline.exported', { path }) : t('timeline.exportFailed'))
+    } catch {
+      setExported(t('timeline.exportFailed'))
+    }
+  }
   const copyLabel = t(copyState === 'copied' ? 'timeline.copied' : copyState === 'failed' ? 'timeline.copyFailed' : 'timeline.copy')
   const retryLabel = t(actions?.retryKind === 'regenerate' ? 'timeline.regenerate' : 'timeline.resend')
 
@@ -133,6 +154,25 @@ function MessageActionBar({ text, actions, readable }: { text: string; actions?:
           <GitCompare size={13} aria-hidden="true" />
         </button>
       ) : null}
+      {readable && typeof window.agentWorkspace?.invoke === 'function' ? (
+        <span className="message-export">
+          <button type="button" className="message-action" aria-label={t('timeline.export')} title={t('timeline.export')} aria-expanded={exportOpen}
+            onClick={() => setExportOpen(!exportOpen)}>
+            <FileDown size={13} aria-hidden="true" />
+          </button>
+          {exportOpen ? (
+            <span className="message-export-menu" role="menu">
+              {(['pdf', 'docx', 'md'] as const).map((format) => (
+                <button key={format} type="button" role="menuitem" disabled={format === 'pdf' && !window.agentWorkspace?.exportPdf}
+                  onClick={(event) => void saveAs(format, event.currentTarget)}>
+                  {t(`timeline.export.${format}`)}
+                </button>
+              ))}
+            </span>
+          ) : null}
+          {exported ? <span className="message-export-note" role="status">{exported}</span> : null}
+        </span>
+      ) : null}
       {actions?.onSendToPhone ? (
         <button type="button" className="message-action" aria-label={t('devices.sendToPhone')} title={t('devices.sendToPhone')}
           onClick={() => {
@@ -143,6 +183,51 @@ function MessageActionBar({ text, actions, readable }: { text: string; actions?:
           <Smartphone size={13} aria-hidden="true" />
         </button>
       ) : null}
+    </div>
+  )
+}
+
+/** Failed checks handed back to the agent: which ones, which attempt, and their output. */
+function ChecksHandBack({ text }: { text: string }) {
+  const { t } = useOptionalI18n()
+  const names = [...text.matchAll(/^## ([^:\n]+):/gm)].map((match) => match[1]!.trim())
+  const round = /\(automatic fix (\d+) of (\d+)\)/.exec(text)
+  const sections = text.slice(text.indexOf('## ')).replace(/\n\nFix the code so these checks pass[\s\S]*$/, '')
+  return (
+    <div className="checks-handback" role="note">
+      <ListChecks size={14} aria-hidden="true" />
+      <div>
+        <p>
+          {t('timeline.checksFailed', { checks: names.join(t('timeline.listSeparator')) })}
+          {round ? ` ${t('timeline.checksRound', { round: round[1]!, rounds: round[2]! })}` : ''}
+        </p>
+        <details>
+          <summary>{t('timeline.checksOutput')}</summary>
+          <SafeMarkdown source={sections} />
+        </details>
+      </div>
+    </div>
+  )
+}
+
+/** A step of a spec the Specs tab asked for: which spec and what was asked, the full request
+ * folded away. */
+function SpecHandOff({ text, meta }: { text: string; meta: SpecPromptMeta }) {
+  const { t } = useOptionalI18n()
+  const what = meta.step === 'build'
+    ? (meta.task ? t('timeline.specTask', { task: meta.task }) : t('timeline.specBuild'))
+    : t(`timeline.specWrite.${meta.step}` as MessageKey)
+  const request = text.split('\n').slice(2).join('\n')
+  return (
+    <div className="checks-handback spec-handoff" role="note">
+      <ClipboardList size={14} aria-hidden="true" />
+      <div>
+        <p>{t('timeline.specStep', { title: meta.title, what })}</p>
+        <details>
+          <summary>{t('timeline.specRequest')}</summary>
+          <SafeMarkdown source={request} />
+        </details>
+      </div>
     </div>
   )
 }
@@ -159,6 +244,10 @@ export function TimelineRow({ entry, onOpenExternal, actions, noticeActions }: {
   if (entry.type === 'tool') return <ToolRow entry={entry} />
   if (entry.type === 'diff') return <DiffBlock source={entry.source} />
   if (entry.type === 'notice') return <NoticeRow entry={entry} actions={noticeActions} />
+  if (entry.type === 'files') return <TurnFilesCard entry={entry} />
+  if (completedUserText !== null && completedUserText.startsWith(CHECKS_MARKER)) return <ChecksHandBack text={completedUserText} />
+  const specMeta = completedUserText !== null ? specPromptMeta(completedUserText) : null
+  if (completedUserText !== null && specMeta) return <SpecHandOff text={completedUserText} meta={specMeta} />
   if (entry.role === 'reasoning') {
     const snippet = entry.text.trimStart().slice(0, 240).replace(/\s+/g, ' ').trim()
     const preview = snippet
@@ -183,7 +272,7 @@ export function TimelineRow({ entry, onOpenExternal, actions, noticeActions }: {
         {entry.origin ? <PhoneOrigin origin={entry.origin} /> : null}
         {showActions ? <MessageActionBar text={body} actions={actions} readable={entry.role === 'assistant'} /> : null}
       </header>
-      <SafeMarkdown source={body} resources={entry.resources} streaming={entry.open === true} onOpenExternal={onOpenExternal} />
+      <SafeMarkdown source={body} resources={entry.resources} streaming={entry.open === true} onOpenExternal={onOpenExternal} onOpenFile={openAnswerFile} />
       {userDisplay?.filenames.length ? <ul className="user-attachment-labels">
         {userDisplay.filenames.map((filename, index) => (
           <li className="user-attachment-label" key={`${index}:${filename}`}>

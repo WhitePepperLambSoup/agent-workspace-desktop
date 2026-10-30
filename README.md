@@ -6,15 +6,16 @@ A desktop AI agent for Windows. Open a folder, describe the task, and the agent 
 it out with real tools — files, Git, a staged sandbox for commands, a terminal, the web, documents
 and your own knowledge base — asking before anything that changes your files or reaches the
 network. It works with the cloud model you choose or a model served on your own computer, and
-keeps every conversation, change and approval on this machine.
+keeps every conversation, change and approval on this machine. A request can also go to a team of
+specialists that the agent leads, and you can watch the teams work in a 3D studio.
 
 The Android app ([agent-workspace-android](https://github.com/WhitePepperLambSoup/agent-workspace-android))
 shares the same Python core; a phone running version 2.5.0 or later can connect to this computer.
 
-> Status: public preview (`0.1.0-alpha`). Windows 10 and 11, x64. Releases are not code-signed yet.
+> Status: public preview (`0.2.0-alpha`). Windows 10 and 11, x64. Releases are not code-signed yet.
 
 <p align="center">
-  <img src="docs/screenshots/chat-tools-en.png" width="820" alt="A task that read a file with a tool, and the context panel with usage and cost">
+  <img src="docs/screenshots/studio-building-en.png" width="820" alt="The studio: three conversations with expert teams at work, one floor each">
 </p>
 
 ## Download
@@ -26,6 +27,23 @@ installers: choose "More info", then "Run anyway". Installed copies can update t
 releases page (Settings → About & Updates); they check only when you ask.
 
 ## Features
+
+### Expert team and studio
+
+Send a request to the expert team and the agent leads it. It picks the specialists the request
+needs from a library of 73 experts in 15 fields (or uses the team you set), gives each a part,
+has a reviewer check the draft when the answer carries figures or a consequential decision, and
+answers from the findings that hold up. The experts work at the same time, each with the tools of
+its field; experts who write code run their tests in the sandbox.
+
+The studio shows each team in a 3D office: the lead at the board handing out the parts, the
+experts at their desks reading, computing or writing, and the review at the round table. When
+several conversations have a team at work, each gets a floor of one building; click a floor to go
+in, or a person to open their task.
+
+<p align="center">
+  <img src="docs/screenshots/studio-floor-en.png" width="820" alt="One floor of the studio: the lead at the board and three experts at their desks">
+</p>
 
 ### Conversations and tasks
 
@@ -45,6 +63,13 @@ releases page (Settings → About & Updates); they check only when you ask.
   fails at the provider, stops with the reason in the conversation.
 - **Agent runs**: long work split into a plan with sub-agents, each with its own progress,
   approvals and results.
+- **What changed**: each answer ends with the files its task created, edited, moved or deleted.
+  Open one in the app, see what changed in an edited text file, or undo the agent's changes one
+  file at a time or all together. Files that commands changed are listed apart.
+
+<p align="center">
+  <img src="docs/screenshots/chat-tools-en.png" width="820" alt="A task that read a file with a tool, and the context panel with usage and cost">
+</p>
 
 ### Workspace and coding
 
@@ -52,11 +77,43 @@ releases page (Settings → About & Updates); they check only when you ask.
   rolls back. Moves and deletes check the content they expect.
 - **Staged sandbox**: commands run in a private copy of the folder and come back as a changeset
   you review and apply one change at a time.
-- Git status, diff, blame, log and staged-only commits; a terminal; background jobs with logs;
-  LSP diagnostics and a code map.
+- Git status, diff, blame, log and staged-only commits; background jobs with logs; a code map.
+- **Editor**: syntax colouring, the language server's errors, hover and go to definition.
+  Ctrl+K rewrites the selection from an instruction and shows the change before it is kept;
+  inline completion (DeepSeek) can be turned on.
+- **Language servers**: Pyright and the TypeScript server are installed on first use;
+  rust-analyzer, gopls and clangd are used when the computer has them. The agent finds
+  definitions, references and symbols through them and sees a file's errors after each edit.
+- **Project checks**: tests, type check and lint, detected or set in `.agent/project.json` and
+  accepted once per folder, run after a task that changed files; a failure can go back to the
+  agent. Project rules can format files after a write, protect paths, and refuse a commit whose
+  staged changes look like they contain a secret.
+- **Terminal**: PowerShell, cmd, Git Bash, each WSL distribution and the SSH hosts in
+  `~/.ssh/config`, in a panel under the workspace (Ctrl+\`); the agent can read what is on
+  screen and run commands in WSL.
+- **Debugger**: breakpoints in the editor, the call stack and variables for Python (debugpy,
+  installed on first use). The agent can stop at a line and read the variables.
+- **Page check**: the agent opens a page in a hidden browser, clicks through steps, and gets
+  the console errors, failed requests and a screenshot.
+- **Reviewing changes**: undo or comment on each hunk, a review by the model as comments on
+  the lines, and a comment handed to the agent as a task.
+- **Git**: branches, commit messages written from the diff, conflicts, pull request checks
+  with their failed logs (GitHub CLI) and issues as tasks.
+- **Specs**: requirements, design and task list, each approved in turn before the agent builds.
+- **Repository tour**: a map of the modules and their imports, and an overview of the
+  architecture written from the code.
+- **Expert team on code**: experts who write code get the same tools and run their tests in the
+  sandbox; the lead gives them parts that can be tested on their own.
 - Workspace setup the agent follows: `AGENTS.md`, skills in `.agent/skills`, MCP servers in
   `.agent/mcp.toml` and custom tools in `.agent/tools` — each approved before it first runs.
 - A managed browser for pages that need scripts, with screenshots in the conversation.
+- **Preview in the app**: web pages from answers, and pages, PDFs and pictures in the folder, open
+  in a preview inside the window; other text files open in a reader, Word, Excel and PowerPoint
+  files in their own preview.
+
+<p align="center">
+  <img src="docs/screenshots/coding-en.png" width="820" alt="A Python file in the editor and its tests run in the terminal panel">
+</p>
 
 ### Knowledge base
 
@@ -73,12 +130,78 @@ offline.
   <img src="docs/screenshots/knowledge-answer-en.png" width="410" alt="An answer that cites the documents it came from">
 </p>
 
+### Skills
+
+Instructions for everyday jobs that conversations in every folder can use: reading contracts and
+long documents, analysing tables, keeping accounts, meeting minutes, polishing and translating,
+résumés, work reports, study cards, trip plans, meal plans, splitting bills and spotting scams.
+They are adapted from the Android app's official skills, without the ones that operate a phone.
+A conversation lists only their names and uses, and the agent reads one in full when a request
+needs it. Turn them on or off in Settings → Skills, or add your own by copying a folder with a
+`SKILL.md` file (the format of the Android app and other agents) into the skills folder.
+
 ### Research and memory
 
 - Research mode keeps the pages the agent read as sources and checks that every citation quotes
   them exactly.
 - Long-term memory per workspace, searched only when the agent asks for it; you can review, edit
   and delete it.
+
+### Science and papers
+
+- **Literature**: the agent searches OpenAlex, arXiv, PubMed, Crossref and Semantic Scholar, keeps
+  a reference library per folder (imports from Zotero, BibTeX, RIS, EndNote and NoteExpress),
+  exports BibTeX or a formatted list (GB/T 7714, APA, IEEE, Vancouver, Nature), and checks a
+  reference list against the databases. A named watch reports only papers it has not reported
+  before; the "New papers" scheduled task uses it.
+- **Reading papers**: a PDF's outline, pages, search and reference list; answers link to the page
+  they quote, which opens in the app.
+- **Reference library page**: Workspace → References lists the folder's works with their
+  abstracts and links, adds from the databases or Zotero, imports BibTeX, RIS, EndNote,
+  NoteExpress and CSL-JSON files, copies a formatted list, saves BibTeX or RIS, and checks each
+  work against the databases (differences, works no database knows, retractions).
+- **LaTeX**: `.tex` and `.bib` files open in an editor beside their PDF, with compiling (MiKTeX,
+  TeX Live, or Tectonic installed on request), errors in plain words with one-click fixes, a
+  checker for common mistakes, jumping between source and PDF (SyncTeX), citing from the library
+  or an online search, and starters for Chinese and English papers, reports and slides. A `.tex`
+  file can also be edited visually, like in Word (headings, lists, formulas, figures, tables,
+  citations); untouched parts of the file stay byte for byte. Based on
+  [TeXButler](https://github.com/WhitePepperLambSoup/texbutler).
+- **Data and figures**: a scientific Python environment installed on request in Settings →
+  Scientific Python (numpy, pandas, scipy, matplotlib, statsmodels, scikit-learn, Jupyter tools), with
+  journal-sized figure styles, statistics, figure templates and journal checks from
+  [Quick SciPlot](https://github.com/WhitePepperLambSoup/quick-sciplot). Points of a figure can be
+  dragged to correct the data it was drawn from; the corrected copy and a list of the changes are
+  saved, and the figure is redrawn.
+- **Notebooks**: `.ipynb` files open with their cells and outputs.
+- **Lab notebook**: dated entries in `lab-notebook/YYYY-MM.md`, written when you record an
+  experiment and searched later.
+- **Servers**: commands, file copies and Slurm jobs on the servers of your SSH configuration, with
+  key login; each one is approved.
+- **Exporting answers**: an answer saves as PDF (formulas as shown), Word or Markdown in the
+  folder's `exports/`.
+
+### Office
+
+- **Official documents**: 通知, 请示, 报告, 函 and 纪要 laid out to GB/T 9704; existing files
+  checked and fixed; Chinese proofreading.
+- **Word**: edits as tracked changes with comments; two versions compared into a redline and a
+  summary; a template filled from a table (a file per row, or one, also as PDF); Word, PowerPoint
+  and Excel files translated keeping their layout, replaced or side by side.
+- **Workbooks**: real formulas, number formats, conditional formatting and native charts; tables
+  merged, matched on key columns, compared with highlights, cut into payslips; e-invoices (XML,
+  OFD, PDF) summed, checked and de-duplicated.
+- **PDF**: merge, split, pick, delete, rotate, page numbers, watermarks, compression, pictures or
+  Office files to PDF, and a searchable text layer for scans (Windows text recognition).
+- **Slides**: decks on your PowerPoint template or one installed with Office, with native charts
+  and speaker notes; crowded slides are flagged.
+- **E-mail and meetings**: .eml and Outlook .msg files read, replies drafted as unsent messages,
+  .ics invitations; recordings transcribed with times by the speech service of Settings → Voice.
+- **Templates**: New from template on the Files page, built-in or your own files with `{{fields}}`.
+- **Quick actions**: copy text or a table screenshot anywhere and press Ctrl+Alt+Q: polish,
+  translate, summarize, official tone, reply, or the table as a workbook.
+
+Every file the agent writes can be undone from the turn's change list.
 
 ### Models
 
@@ -119,13 +242,16 @@ removed from either side. The protocol is in [docs/DEVICE_LINK_API.md](docs/DEVI
 
 ### Interface
 
-- Liquid glass, solid or Mica materials, light and dark, with reduced-motion support.
+- Liquid glass, solid or Mica materials, light and dark, with reduced-motion support. Liquid glass
+  panes, the composer and dialogs bend the drifting colour field behind their rims and catch a
+  highlight that follows the pointer (after
+  [liquid-glass](https://github.com/xiaojiaenen/liquid-glass)); Settings → Appearance turns it off.
 - Simplified Chinese, Traditional Chinese, English and Japanese.
 - Command palette and customizable shortcuts, `/` commands and `@` file mentions, notifications
   when a background task needs you, and session rename, pin, archive, export and import.
 - The main surfaces are checked against WCAG 2.2 AA.
-- A verified backup of the database each time the app closes (the last ten are kept); logs and
-  crash dumps stay on this computer.
+- A verified backup of the database once a day, made in the background (the last ten are kept);
+  logs and crash dumps stay on this computer.
 
 ## Quick start
 

@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type PropsWithChildren } from 'react'
 
 import type { Locale } from './locales'
-import { type MessageKey, translate, translateText, type TranslationVariables } from './messages'
+import { hasMessages, loadMessages, type MessageKey, translate, translateText, type TranslationVariables } from './messages'
 import { loadLocale, saveLocale } from './storage'
 
 export interface I18nValue {
@@ -30,9 +30,14 @@ export function I18nProvider({ children }: PropsWithChildren): React.JSX.Element
   }, [locale])
 
   const setLocale = useCallback((nextLocale: Locale) => {
-    setLocaleState(nextLocale)
     saveLocale(nextLocale)
-    setDocumentLocale(nextLocale)
+    const apply = (): void => {
+      setLocaleState(nextLocale)
+      setDocumentLocale(nextLocale)
+    }
+    // A language loaded before switches at once; another switches when its messages arrive.
+    if (hasMessages(nextLocale)) apply()
+    else void loadMessages(nextLocale).then(apply, apply)
   }, [])
 
   const t = useCallback((key: MessageKey, variables?: TranslationVariables) => translate(locale, key, variables), [locale])

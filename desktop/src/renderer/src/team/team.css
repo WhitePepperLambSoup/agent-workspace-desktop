@@ -1,0 +1,82 @@
+/* Settings → Expert team: who works on a team turn. */
+.team-settings .team-members { display: grid; gap: 8px; }
+.team-settings .team-limit { margin: 0; color: var(--text-muted); font-size: 12px; }
+.team-settings .team-members ul {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.team-settings .team-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--control-fill);
+  box-shadow: inset 0 0 0 1px var(--control-border);
+}
+.team-settings .team-option[data-checked="true"] {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 50%, transparent);
+}
+.team-settings .team-option label {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+}
+.team-settings .team-option input { margin: 2px 0 0; accent-color: var(--accent); }
+.team-settings .team-option-text { display: grid; gap: 2px; min-width: 0; }
+.team-settings .team-option-text strong { font-size: 13px; }
+.team-settings .team-option-text span {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.team-settings .team-add { justify-self: start; display: inline-flex; align-items: center; gap: 5px; }
+.team-settings .team-mode { display: grid; gap: 6px; margin: 0; padding: 0; border: 0; }
+.team-settings .team-mode legend { margin-bottom: 4px; font-size: 13px; font-weight: 600; }
+.team-settings .team-mode label { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
+.team-settings .team-mode input { margin: 3px 0 0; accent-color: var(--accent); }
+.team-settings .team-mode label > span { display: grid; gap: 2px; }
+.team-settings .team-mode label > span > span { color: var(--text-muted); font-size: 12px; }
+.team-settings .team-domain { border-radius: 10px; }
+.team-settings .team-domain > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  font-size: 13px;
+  cursor: pointer;
+  list-style: none;
+}
+.team-settings .team-domain > summary::-webkit-details-marker { display: none; }
+.team-settings .team-domain > summary::before { content: "›"; color: var(--text-muted); transition: transform var(--motion, 120ms) linear; }
+.team-settings .team-domain[open] > summary::before { transform: rotate(90deg); }
+.team-settings .team-domain > summary > span:last-child { margin-left: auto; color: var(--text-muted); font-size: 12px; }
+.team-settings .team-domain > ul { margin: 2px 0 8px; }
+.team-settings .team-domain-swatch { width: 9px; height: 9px; border-radius: 3px; background: var(--swatch, var(--accent)); }
+.team-settings .team-custom-form { display: grid; gap: 8px; }
+.team-settings .team-custom-form label { display: grid; gap: 4px; font-size: 12px; color: var(--text-muted); }
+.team-settings .team-custom-form :is(input, textarea) {
+  width: 100%;
+  padding: 7px 9px;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--control-fill);
+  box-shadow: inset 0 0 0 1px var(--control-border);
+  resize: vertical;
+}
+.team-settings .team-custom-actions { display: flex; gap: 6px; }

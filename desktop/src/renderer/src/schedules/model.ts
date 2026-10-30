@@ -278,6 +278,7 @@ export const TEMPLATES: readonly ScheduleTemplate[] = [
   { id: 'news', title: 'schedules.template.news.title', prompt: 'schedules.template.news.prompt', rule: { kind: 'daily', time: '08:00', days: [1] } },
   { id: 'tidy', title: 'schedules.template.tidy.title', prompt: 'schedules.template.tidy.prompt', rule: { kind: 'weekly', time: '18:00', days: [5] } },
   { id: 'report', title: 'schedules.template.report.title', prompt: 'schedules.template.report.prompt', rule: { kind: 'weekly', time: '17:00', days: [5] } },
+  { id: 'papers', title: 'schedules.template.papers.title', prompt: 'schedules.template.papers.prompt', rule: { kind: 'weekly', time: '09:00', days: [1] } },
   { id: 'watch', title: 'schedules.template.watch.title', prompt: 'schedules.template.watch.prompt', rule: { kind: 'daily', time: '09:00', days: [1] } },
   { id: 'tests', title: 'schedules.template.tests.title', prompt: 'schedules.template.tests.prompt', rule: { kind: 'weekdays', time: '09:00', days: [1] } },
 ]

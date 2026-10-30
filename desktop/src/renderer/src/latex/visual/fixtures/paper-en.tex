@@ -1,0 +1,59 @@
+\documentclass[11pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath, amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{float}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[hidelinks]{hyperref}
+
+\title{Title of the Paper}
+\author{Author Name}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+State the problem, the approach, the main results and what they mean.
+\end{abstract}
+
+\section{Introduction}
+
+Give the background and the question. Cite a work as \cite{lecun2015deep}
+and several as \cite{lecun2015deep,knuth1984texbook}.
+
+\section{Methods}
+
+\begin{equation}
+  y = f(\mathbf{x}; \theta) + \varepsilon
+  \label{eq:model}
+\end{equation}
+In Equation~\eqref{eq:model}, $\theta$ are the parameters.
+
+\section{Results}
+
+\begin{table}[H]
+  \centering
+  \caption{Results}
+  \label{tab:results}
+  \begin{tabular}{lcc}
+    \toprule
+    Method & Metric A & Metric B \\
+    \midrule
+    Method 1 & 0.91 & 0.88 \\
+    Method 2 & 0.94 & 0.90 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Table~\ref{tab:results} lists the results.
+
+\section{Conclusion}
+
+Summarize the findings and the next steps.
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+\end{document}

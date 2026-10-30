@@ -64,6 +64,7 @@ function VoiceSettingsView({ client, i18n }: { client?: Pick<WorkbenchBridgeClie
       </div>
       {profiles && profiles.length === 0 ? <p className="provider-hint">{t('settings.voice.noProfiles')}</p> : null}
       <p className="provider-hint">{t('settings.voice.privacy')}</p>
+      <p className="provider-hint">{t('settings.voice.meetings')}</p>
     </section>
   )
 }

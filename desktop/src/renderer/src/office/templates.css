@@ -1,0 +1,127 @@
+.template-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--divider);
+  border-radius: 10px;
+  background: var(--reading);
+  font-size: 12px;
+}
+
+.template-picker-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.template-picker-header h2 {
+  flex: 1;
+  margin: 0;
+  font-size: 13px;
+}
+
+.template-picker-note {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.template-spin {
+  animation: spin 1s linear infinite;
+  vertical-align: -2px;
+}
+
+.template-picker-body {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) minmax(0, 1fr);
+  gap: 12px;
+  min-height: 0;
+}
+
+.template-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.template-group h3 {
+  margin: 0 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.template-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 6px;
+  font: inherit;
+  text-align: left;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.template-item:hover {
+  background: var(--hover, color-mix(in srgb, var(--text) 6%, transparent));
+}
+
+.template-item.active {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.template-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.template-form h3 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.template-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 6px 10px;
+  max-height: 260px;
+  overflow: auto;
+}
+
+.template-fields label,
+.template-folder {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--text-muted);
+}
+
+.template-fields input,
+.template-folder input {
+  font: inherit;
+  color: var(--text);
+  background: var(--input);
+  border: 1px solid var(--divider);
+  border-radius: 6px;
+  padding: 3px 6px;
+}
+
+.template-actions {
+  display: flex;
+  gap: 8px;
+}
+
+@media (max-width: 720px) {
+  .template-picker-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -7,9 +7,13 @@ import {
   GitCommit,
   GitCompare,
   History,
+  ListChecks,
+  MessageSquare,
+  Loader2,
   ShieldCheck,
   RefreshCw,
   Search,
+  Sparkles,
   Undo2,
   UploadCloud,
 } from 'lucide-react'
@@ -18,8 +22,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { WorkbenchBridgeClient } from '../bridge/client'
 import { useOptionalI18n } from '../i18n/I18nProvider'
 import { localizeKnownStatus, translate, type MessageKey } from '../i18n/messages'
+import { openWorkspaceFile } from '../preview/preview-request'
 import type { WorkbenchState } from '../state/workbench-store'
 import { ChangeDetail } from './ChangeDetail'
+import { branchFromTitle, GitPanel, gitErrorKey, type GitClient, type GitStatus } from './GitPanel'
+import { HunkComment } from './HunkDiff'
+import { ProjectChecks, type ProjectClient } from './ProjectChecks'
 import { ReviewWorkspace } from './ReviewWorkspace'
 
 export interface GitHunkLine {
@@ -49,6 +57,11 @@ export interface GitFileDiff {
   hunks: GitDiffHunk[]
 }
 
+/** A hunk as unified diff text, for a comment sent to the conversation. */
+function hunkText(hunk: GitDiffHunk): string {
+  return [hunk.header, ...hunk.lines.filter((line) => line.kind !== 'marker').map((line) => `${line.content}`)].join('\n')
+}
+
 type ChangesClient = Pick<WorkbenchBridgeClient, 'listChanges' | 'inspectChange'> &
   Partial<
     Pick<
@@ -66,8 +79,15 @@ type ChangesClient = Pick<WorkbenchBridgeClient, 'listChanges' | 'inspectChange'
       | 'createDraftPullRequest'
       | 'refreshPullRequest'
       | 'listAgentRuns'
+      | 'projectSettings'
+      | 'saveProjectSettings'
+      | 'trustProjectSettings'
+      | 'runProjectChecks'
+      | 'startTurn'
+      | 'writeCommitMessage'
     >
-  >
+  > &
+  Partial<GitClient>
 
 export function ChangesRoute({
   state,
@@ -83,7 +103,7 @@ export function ChangesRoute({
   const bootstrapVersion = state.bootstrapVersion ?? 0
 
   // Mode: Working Tree vs Changesets
-  const [activeTab, setActiveTab] = useState<'working_tree' | 'changesets' | 'review'>(
+  const [activeTab, setActiveTab] = useState<'working_tree' | 'changesets' | 'review' | 'checks' | 'git'>(
     client?.getGitDiff ? 'working_tree' : 'changesets',
   )
 
@@ -100,6 +120,8 @@ export function ChangesRoute({
   const [loadingGit, setLoadingGit] = useState(false)
   const [isGitRepo, setIsGitRepo] = useState<boolean>(true)
   const [expandedHunks, setExpandedHunks] = useState<Set<number>>(new Set())
+  // The part of a file's change the user is writing a comment on (path:hunk).
+  const [commenting, setCommenting] = useState<string | null>(null)
   const [selectedFilesForDelivery, setSelectedFilesForDelivery] = useState<Set<string>>(new Set())
   const gitRequestGeneration = useRef(0)
 
@@ -294,6 +316,23 @@ export function ChangesRoute({
     setDelivering(true)
     setError(null)
     try {
+      if (commitOnNewBranch && gitClient && gitBranch?.branch === gitBranch?.defaultBranch) {
+        let failed: string | undefined
+        try {
+          const made = await gitClient.createGitBranch(newBranchName.trim() || branchFromTitle(deliveryTitle))
+          failed = (made.payload as { error?: string }).error
+          if (!failed) {
+            setGitBranch((made.payload as { status?: GitStatus }).status ?? null)
+            setCommitOnNewBranch(false)
+          }
+        } catch (reason) {
+          failed = reason instanceof Error ? reason.message : String(reason)
+        }
+        if (failed) {
+          setError(gitErrorKey(failed))
+          return
+        }
+      }
       const selectedList = Array.from(selectedFilesForDelivery)
       const res = await client.deliverGitChanges(
         deliveryTitle.trim(),
@@ -340,6 +379,75 @@ export function ChangesRoute({
       setExpandedHunks(new Set(activeGitFileDiff.hunks.map((h) => h.hunkIndex)))
     }
   }, [activeGitFileDiff])
+
+  // One object per client: the checks page reads the settings again whenever it changes.
+  const projectClient = useMemo<ProjectClient | null>(() => (
+    client?.projectSettings && client.saveProjectSettings && client.trustProjectSettings && client.runProjectChecks
+      ? {
+          projectSettings: client.projectSettings.bind(client),
+          saveProjectSettings: client.saveProjectSettings.bind(client),
+          trustProjectSettings: client.trustProjectSettings.bind(client),
+          runProjectChecks: client.runProjectChecks.bind(client),
+        }
+      : null
+  ), [client])
+
+  const gitClient = useMemo<GitClient | null>(() => {
+    const names = ['gitStatus', 'createGitBranch', 'switchGitBranch', 'takeConflictSide', 'markConflictResolved', 'finishGitOperation', 'ciRuns', 'ciLog', 'gitIssues', 'gitIssue'] as const
+    if (!client || !names.every((name) => typeof client[name] === 'function')) return null
+    return Object.fromEntries(names.map((name) => [name, (client[name] as (...args: never[]) => unknown).bind(client)])) as unknown as GitClient
+  }, [client])
+
+  const askConversation = client?.startTurn
+    ? async (prompt: string): Promise<boolean> => {
+      try {
+        await client.startTurn!(prompt)
+        return true
+      } catch {
+        return false
+      }
+    }
+    : undefined
+
+  // The branch, for the commit form: on the default branch it offers a new one.
+  const [gitBranch, setGitBranch] = useState<GitStatus | null>(null)
+  const [commitOnNewBranch, setCommitOnNewBranch] = useState(false)
+  const [newBranchName, setNewBranchName] = useState('')
+  const [writingMessage, setWritingMessage] = useState(false)
+  const [messageError, setMessageError] = useState<MessageKey | null>(null)
+  useEffect(() => {
+    if (activeTab !== 'working_tree' || !gitClient || gitFiles.length === 0) return
+    let current = true
+    void gitClient.gitStatus().then((reply) => {
+      const next = (reply.payload as { status?: GitStatus }).status ?? null
+      if (!current) return
+      setGitBranch(next)
+      setCommitOnNewBranch(Boolean(next?.branch && next.branch === next.defaultBranch))
+    }, () => undefined)
+    return () => {
+      current = false
+    }
+  }, [activeTab, gitClient, gitFiles.length])
+
+  const writeMessage = async (): Promise<void> => {
+    if (!client?.writeCommitMessage || writingMessage || selectedFilesForDelivery.size === 0) return
+    setWritingMessage(true)
+    setMessageError(null)
+    try {
+      const reply = await client.writeCommitMessage(Array.from(selectedFilesForDelivery), locale)
+      const message = (reply.payload as { message?: { title?: string; body?: string } }).message
+      if (message?.title) {
+        deliveryDraft.current.titleEdited = true
+        setDeliveryTitle(message.title)
+        setDeliveryDescription(message.body ?? '')
+      }
+    } catch (reason) {
+      const code = reason instanceof Error ? reason.message : String(reason)
+      setMessageError(code === 'provider_unconfigured' ? 'review.aiNoProvider' : code === 'nothing_to_commit' ? 'changes.noFilesSelected' : 'git.error.message')
+    } finally {
+      setWritingMessage(false)
+    }
+  }
 
   const totalAdditions = useMemo(() => gitFiles.reduce((acc, f) => acc + f.additions, 0), [gitFiles])
   const totalDeletions = useMemo(() => gitFiles.reduce((acc, f) => acc + f.deletions, 0), [gitFiles])
@@ -388,6 +496,31 @@ export function ChangesRoute({
             >
               <ShieldCheck size={13} />
               <span>{t('changes.review')}</span>
+            </button>
+          ) : null}
+          {client?.projectSettings ? (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'checks'}
+              className={`sub-tab-btn ${activeTab === 'checks' ? 'active' : ''}`}
+              onClick={() => setActiveTab('checks')}
+            >
+              <ListChecks size={13} />
+              <span>{t('changes.checksTab')}</span>
+              {state.checks?.running ? <Loader2 size={11} className="spin-animation" aria-hidden="true" /> : null}
+            </button>
+          ) : null}
+          {gitClient ? (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'git'}
+              className={`sub-tab-btn ${activeTab === 'git' ? 'active' : ''}`}
+              onClick={() => setActiveTab('git')}
+            >
+              <GitBranch size={13} />
+              <span>{t('git.tab')}</span>
             </button>
           ) : null}
         </div>
@@ -541,7 +674,37 @@ export function ChangesRoute({
                 <h3>
                   <UploadCloud size={14} />
                   <span>{t('changes.deliveryTitle')}</span>
+                  {client?.writeCommitMessage ? (
+                    <button
+                      type="button"
+                      className="text-btn commit-write-message"
+                      disabled={writingMessage || selectedFilesForDelivery.size === 0}
+                      aria-busy={writingMessage}
+                      onClick={() => void writeMessage()}
+                    >
+                      {writingMessage ? <Loader2 size={12} className="spin-animation" /> : <Sparkles size={12} />}
+                      {writingMessage ? t('git.writingMessage') : t('git.writeMessage')}
+                    </button>
+                  ) : null}
                 </h3>
+                {messageError ? <p className="route-note warning">{t(messageError)}</p> : null}
+                {gitBranch?.branch && gitBranch.branch === gitBranch.defaultBranch ? (
+                  <div className="commit-new-branch">
+                    <label className="git-check">
+                      <input type="checkbox" checked={commitOnNewBranch} onChange={(event) => setCommitOnNewBranch(event.target.checked)} />
+                      {t('git.commitOnNewBranch', { branch: gitBranch.branch })}
+                    </label>
+                    {commitOnNewBranch ? (
+                      <input
+                        type="text"
+                        aria-label={t('git.newBranch')}
+                        placeholder={branchFromTitle(deliveryTitle)}
+                        value={newBranchName}
+                        onChange={(event) => setNewBranchName(event.target.value)}
+                      />
+                    ) : null}
+                  </div>
+                ) : null}
                 <input
                   type="text"
                   aria-label={t('changes.commitTitle')}
@@ -633,7 +796,32 @@ export function ChangesRoute({
                           <Undo2 size={12} />
                           <span>{t('changes.discardHunk')}</span>
                         </button>
+                        {client?.startTurn && sessionId ? (
+                          <button
+                            type="button"
+                            className="hunk-discard-btn"
+                            aria-expanded={commenting === `:${hunk.hunkIndex}`}
+                            onClick={() => setCommenting((current) => current === `:${hunk.hunkIndex}` ? null : `:${hunk.hunkIndex}`)}
+                          >
+                            <MessageSquare size={12} />
+                            <span>{t('changes.commentHunk')}</span>
+                          </button>
+                        ) : null}
                       </div>
+                      {commenting === `:${hunk.hunkIndex}` && client?.startTurn ? (
+                        <HunkComment
+                          onCancel={() => setCommenting(null)}
+                          onSend={async (comment) => {
+                            try {
+                              await client.startTurn!(t('changes.askAbout', { path: activeGitFileDiff.filePath, diff: hunkText(hunk), comment }))
+                              setCommenting(null)
+                              return true
+                            } catch {
+                              return false
+                            }
+                          }}
+                        />
+                      ) : null}
 
                       {isExpanded ? (
                         <div className="hunk-lines" role="region" tabIndex={0} aria-label={t('changes.hunkLines', { header: hunk.header })}>
@@ -665,8 +853,14 @@ export function ChangesRoute({
         <ReviewWorkspace state={state} client={client} />
       ) : null}
 
+      {activeTab === 'checks' && projectClient ? <ProjectChecks state={state} client={projectClient} /> : null}
+
+      {activeTab === 'git' && gitClient ? (
+        <GitPanel client={gitClient} onAsk={askConversation} onOpenFile={(file) => openWorkspaceFile(file)} />
+      ) : null}
+
       {/* SESSION CHANGESETS VIEW (Durable Audit) */}
-      {activeTab === 'changesets' || (!client?.getGitDiff && activeTab !== 'review') ? (
+      {activeTab === 'changesets' || (!client?.getGitDiff && activeTab !== 'review' && activeTab !== 'checks' && activeTab !== 'git') ? (
         <div className="route-content operational-split">
           <section className="route-section">
             <header>

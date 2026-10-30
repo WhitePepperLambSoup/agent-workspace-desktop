@@ -17,267 +17,14 @@ import {
 } from './projection-parsers'
 import { mergeTurnInputTimeline, turnInputTimelineFromSnapshot } from './turn-inputs'
 
-export interface TimelineItem {
-  id: string
-  type: string
-  text: string
-  stream: string
-  open: boolean
-  domainSequence?: number
-  correlationId?: string
-  role?: 'user' | 'assistant' | 'reasoning' | 'system'
-  streamChunks?: Array<{ sequence: number; text: string }>
-  data: Record<string, JsonValue>
-}
+import type { BackgroundJobSummary, DeviceNotice, OperationalEventView, OrchestrationView, SessionRuntimeProjection, TerminalView, TimelineItem, WorkbenchState } from './workbench-types'
+import { DEVICE_NOTICES_KEPT, withSubagent } from './workbench-types'
+import { approvalsFromPayload, checkResultsFrom, clearEventReplay, mergeDirectorySessions, orchestrationFromPayload, queueTasksFromPayload, recentWorkspacesFromPayload, rememberCurrentWorkspace, runtimeFromPayload, sessionRuntimesFromPayload, subagentsFromPayload, terminalFromPayload, workspaceGroupsFromPayload, workspacePathKey } from './workbench-payloads'
 
-export interface SessionRuntimeProjection {
-  sessionId: string
-  workspace: string | null
-  ready: boolean
-  state: string
-  activeTurn: string | null
-  queuedTurnCount: number
-  turnRequested?: boolean
-}
-
-export interface RuntimeProjection {
-  epoch: string | null
-  sequence: number
-  ready: boolean
-  state: string
-  mode: string
-  autonomy: string
-  pendingAutonomy: string | null
-  hostSessionId: string | null
-  activeTurn: string | null
-  queuedTurnCount?: number
-  activeSessions?: Record<string, SessionRuntimeProjection>
-  stale: boolean
-  streamRecovery?: { status: 'interrupted' | 'recovering'; attempt: number; maxAttempts: number } | null
-}
-
-export type ActivityRoute = 'agent' | 'runs' | 'workspace' | 'knowledge' | 'schedules' | 'search' | 'changes' | 'jobs' | 'operations' | 'settings'
-export type InspectorTabId = 'context' | 'tasks' | 'research' | 'changes' | 'artifacts' | 'logs'
-
-export interface RecentWorkspace {
-  path: string
-  name: string
-  lastUsed: number
-}
-
-export interface WorkspaceConversationGroup extends RecentWorkspace {
-  sessions: Array<Record<string, JsonValue>>
-  sessionPresentation: Record<string, SessionPresentation>
-  hasMore: boolean
-  nextOffset: number | null
-}
-
-export interface WorkspaceDirectory {
-  groups: WorkspaceConversationGroup[]
-  state: 'idle' | 'loading' | 'ready' | 'error'
-  nextWorkspaceOffset: number | null
-}
-
-export interface SessionPresentation {
-  sessionId: string
-  alias: string | null
-  pinned: boolean
-  archived: boolean
-  version: number
-}
-
-export interface SessionSearchHit {
-  id: string
-  title: string
-  mode: string
-  updatedAt: string
-  snippet: string
-  documentKind: string
-}
-
-export interface ChangeSetSummary {
-  changesetId: string
-  createdAt: string
-  changeCount: number
-  supportedCount: number
-  appliedCount: number
-  rejectedCount: number
-  state: string
-}
-
-export interface BackgroundJobSummary {
-  jobId: string
-  sessionId?: string
-  label?: string
-  state: string
-  createdAt?: string
-  updatedAt?: string
-  terminalReason?: string | null
-}
-
-export interface RuntimeLogEntry {
-  sequence: number
-  type: string
-  text: string
-  sessionId: string | null
-  createdAt?: string
-}
-
-export interface QueueTaskView {
-  id: string
-  workspace?: string
-  prompt?: string
-  model?: string
-  status: string
-  error?: string | null
-  createdAt?: string
-  updatedAt?: string
-  priority?: number
-  owner?: string | null
-  leaseUntil?: string | null
-  attempt?: number
-}
-
-export interface OrchestrationView {
-  id: string
-  kind: 'collaboration' | 'delivery'
-  sessionId?: string
-  title?: string
-  goal?: string
-  state: string
-  phase?: string
-  detail?: string | null
-  finalText?: string | null
-  routeId?: string
-  canResume?: boolean
-  canCancel?: boolean
-  updatedAt?: string
-  members?: Array<Record<string, JsonValue>>
-}
-
-export interface TerminalView {
-  id: string
-  sessionId?: string
-  state: string
-  argv?: string[]
-  cwd?: string
-  output?: string
-  offset?: number
-  outputOffset?: number
-  nextOffset?: number
-  exitCode?: number | null
-  startedAt?: string
-  endedAt?: string | null
-  owner?: string | null
-}
-
-export interface OperationalEventView {
-  sequence: number
-  type: string
-  text: string
-  createdAt?: string
-}
-
-export interface OperationalProjection {
-  route: ActivityRoute
-  inspectorTab: InspectorTabId
-  sessionPresentation: Record<string, SessionPresentation>
-  search: {
-    query: string
-    state: 'idle' | 'loading' | 'ready' | 'unavailable'
-    results: SessionSearchHit[]
-  }
-  workspaceSummary: Record<string, JsonValue> | null
-  changes: ChangeSetSummary[]
-  changesTruncated: boolean
-  selectedChange: Record<string, JsonValue> | null
-  jobs: BackgroundJobSummary[]
-  jobsState: 'idle' | 'loading' | 'ready' | 'error'
-  jobsSessionId?: string | null
-  selectedJobLog: Record<string, JsonValue> | null
-  logs: RuntimeLogEntry[]
-  queue: QueueTaskView[]
-  queueCounts: Record<string, number>
-  queueState: 'idle' | 'loading' | 'ready' | 'error'
-  collaborations: OrchestrationView[]
-  deliveries: OrchestrationView[]
-  orchestrationState: 'idle' | 'loading' | 'ready' | 'error'
-  terminals: Record<string, TerminalView>
-  terminalState: 'idle' | 'loading' | 'ready' | 'error'
-  operationalEvents: OperationalEventView[]
-  eventReplayCursor: number
-  eventReplayEpoch: string | null
-  eventReplayOldestSequence: number | null
-  eventReplayNewestSequence: number | null
-  eventReplayHasMore: boolean
-  eventReplaySessionId: string | null
-}
-
-export interface WorkbenchState {
-  // Local invalidation signal for projections reset by an accepted bootstrap.
-  bootstrapVersion?: number
-  runtime: RuntimeProjection
-  // Finished scheduled runs nobody has looked at yet (the rail's badge).
-  scheduleInbox?: { unread: number }
-  workspace: Record<string, JsonValue> | null
-  recentWorkspaces?: RecentWorkspace[]
-  workspaceDirectory?: WorkspaceDirectory
-  provider: Record<string, JsonValue> | null
-  sessions: Array<Record<string, JsonValue>>
-  selectedSession: Record<string, JsonValue> | null
-  timeline: TimelineItem[]
-  history: { hasMore: boolean; nextCursor: string | null; cutoff: number }
-  approvals: Record<string, Record<string, JsonValue>>
-  tools: Record<string, Record<string, JsonValue>>
-  operational: OperationalProjection
-  // Sub-agents a conversation started (delegate_tasks), by run id, while this window is open.
-  subagents?: Record<string, SubagentView>
-  // Requests a conversation sent to a paired phone (phone_task), by job id.
-  phoneJobs?: Record<string, PhoneJobView>
-  // Files, text and links phones sent while this window is open, newest last.
-  deviceNotices?: DeviceNotice[]
-}
-
-export interface PhoneJobView {
-  jobId: string
-  sessionId: string
-  state: string
-  device: string
-  prompt: string
-}
-
-export interface DeviceNotice {
-  id: string
-  kind: 'file' | 'text' | 'link'
-  device: string
-  name?: string
-  path?: string
-  text?: string
-  // The user lets text from phones go straight to the clipboard.
-  copy: boolean
-}
-
-export const FINISHED_PHONE_JOB_STATES: ReadonlySet<string> = new Set(['succeeded', 'failed', 'rejected', 'expired', 'cancelled'])
-const DEVICE_NOTICES_KEPT = 10
-
-export interface SubagentView {
-  runId: string
-  sessionId: string
-  title: string
-  state: string
-}
-
-export const FINISHED_RUN_STATES: ReadonlySet<string> = new Set(['succeeded', 'failed', 'cancelled', 'needs_attention'])
-
-/** Record a sub-agent's state; a conversation's new batch replaces its finished earlier ones. */
-export function withSubagent(current: Record<string, SubagentView>, next: SubagentView): Record<string, SubagentView> {
-  const startsBatch = next.state === 'draft' && !current[next.runId] && !Object.values(current).some((item) =>
-    item.sessionId === next.sessionId && !FINISHED_RUN_STATES.has(item.state))
-  const kept = startsBatch
-    ? Object.fromEntries(Object.entries(current).filter(([, item]) => item.sessionId !== next.sessionId))
-    : current
-  return { ...kept, [next.runId]: next }
-}
+// The store's types, payload parsers and selectors live beside it; importers keep this path.
+export * from './workbench-types'
+export { checkResultsFrom, workspacePathKey } from './workbench-payloads'
+export * from './workbench-selectors'
 
 interface StoreOptions {
   requestResync?: () => void
@@ -290,57 +37,6 @@ interface StoreOptions {
 const DEFAULT_BUFFER_COUNT = 256
 const DEFAULT_BUFFER_BYTES = 256 * 1024
 const DEFAULT_BUFFER_DISTANCE = 512
-
-function recentWorkspacesFromPayload(value: JsonValue | undefined): RecentWorkspace[] {
-  return arrayObjects(value).flatMap((item) => {
-    const path = stringValue(item.path)
-    const name = stringValue(item.name)
-    if (!path || !name) return []
-    return [{ path, name, lastUsed: numberValue(item.lastUsed) ?? 0 }]
-  })
-}
-
-export function workspacePathKey(path: string): string {
-  const normalized = path.replace(/\\/g, '/').replace(/\/+$/, '')
-  return /^[a-z]:\//i.test(normalized) || normalized.startsWith('//') ? normalized.toLocaleLowerCase() : normalized
-}
-
-function workspaceGroupsFromPayload(value: JsonValue | undefined): WorkspaceConversationGroup[] {
-  return arrayObjects(value).flatMap((group) => {
-    const path = stringValue(group.path)
-    const name = stringValue(group.name)
-    if (!path || !name) return []
-    return [{ path, name, lastUsed: numberValue(group.lastUsed) ?? 0,
-      sessions: arrayObjects(group.sessions).filter(session => typeof session.id === 'string'),
-      sessionPresentation: presentationsFromPayload(group.sessionPresentation),
-      hasMore: group.hasMore === true, nextOffset: numberValue(group.nextOffset) ?? null }]
-  })
-}
-
-function mergeDirectorySessions(
-  existing: Array<Record<string, JsonValue>>, incoming: Array<Record<string, JsonValue>>,
-): Array<Record<string, JsonValue>> {
-  const sessions = new Map(existing.map(session => [stringValue(session.id), session]))
-  for (const session of incoming) sessions.set(stringValue(session.id), session)
-  return [...sessions.values()]
-}
-
-function rememberCurrentWorkspace(state: WorkbenchState): WorkspaceDirectory {
-  const directory: WorkspaceDirectory = state.workspaceDirectory ?? { groups: [], state: 'idle', nextWorkspaceOffset: null }
-  const path = stringValue(state.workspace?.path)
-  if (!path || !state.sessions.length) return directory
-  const matching = directory.groups.find(group => workspacePathKey(group.path) === workspacePathKey(path))
-  const group: WorkspaceConversationGroup = {
-    path, name: stringValue(state.workspace?.name) ?? path.split(/[\\/]/).at(-1) ?? path,
-    lastUsed: matching?.lastUsed ?? 0,
-    sessions: mergeDirectorySessions(matching?.sessions ?? [], state.sessions.filter(session => !session.workspace || workspacePathKey(String(session.workspace)) === workspacePathKey(path))),
-    sessionPresentation: { ...matching?.sessionPresentation, ...state.operational.sessionPresentation },
-    hasMore: matching?.hasMore ?? false, nextOffset: matching?.nextOffset ?? null,
-  }
-  return { ...directory, groups: matching
-    ? directory.groups.map(item => item === matching ? group : item)
-    : [...directory.groups, group] }
-}
 
 const INITIAL_STATE: WorkbenchState = {
   bootstrapVersion: 0,
@@ -398,137 +94,6 @@ const INITIAL_STATE: WorkbenchState = {
     eventReplayHasMore: false,
     eventReplaySessionId: null,
   },
-}
-
-function clearEventReplay(operational: OperationalProjection): OperationalProjection {
-  return {
-    ...operational,
-    operationalEvents: [],
-    eventReplayCursor: 0,
-    eventReplayEpoch: null,
-    eventReplayOldestSequence: null,
-    eventReplayNewestSequence: null,
-    eventReplayHasMore: false,
-    eventReplaySessionId: null,
-  }
-}
-
-function queueTasksFromPayload(value: JsonValue | undefined): QueueTaskView[] {
-  return arrayObjects(value).flatMap((item) => {
-    const id = stringValue(item.id)
-    const status = stringValue(item.status)
-    if (!id || !status) return []
-    return [{
-      id,
-      workspace: stringValue(item.workspace) ?? undefined,
-      prompt: stringValue(item.prompt) ?? undefined,
-      model: stringValue(item.model) ?? undefined,
-      status,
-      error: stringValue(item.error),
-      createdAt: stringValue(item.createdAt) ?? stringValue(item.created_at) ?? undefined,
-      updatedAt: stringValue(item.updatedAt) ?? stringValue(item.updated_at) ?? undefined,
-      priority: numberValue(item.priority),
-      owner: stringValue(item.owner),
-      leaseUntil: stringValue(item.leaseUntil) ?? stringValue(item.lease_until),
-      attempt: numberValue(item.attempt),
-    }]
-  })
-}
-
-function orchestrationFromPayload(value: JsonValue | undefined, kind: OrchestrationView['kind']): OrchestrationView[] {
-  return arrayObjects(value).flatMap((item) => {
-    const id = stringValue(item.id)
-    const stateValue = stringValue(item.state)
-    if (!id || !stateValue) return []
-    const members = Array.isArray(item.members)
-      ? item.members.filter((entry): entry is Record<string, JsonValue> => Boolean(entry && typeof entry === 'object' && !Array.isArray(entry)))
-      : undefined
-    return [{
-      id,
-      kind,
-      sessionId: stringValue(item.sessionId) ?? stringValue(item.session_id) ?? undefined,
-      title: stringValue(item.title) ?? undefined,
-      goal: stringValue(item.goal) ?? undefined,
-      state: stateValue,
-      phase: stringValue(item.phase) ?? undefined,
-      detail: stringValue(item.detail),
-      finalText: stringValue(item.finalText) ?? stringValue(item.final_text),
-      routeId: stringValue(item.routeId) ?? stringValue(item.route_id) ?? undefined,
-      canResume: item.canResume === true || item.can_resume === true,
-      canCancel: item.canCancel !== false && item.can_cancel !== false,
-      updatedAt: stringValue(item.updatedAt) ?? stringValue(item.updated_at) ?? undefined,
-      members,
-    }]
-  })
-}
-
-function terminalFromPayload(value: JsonValue | undefined): TerminalView | null {
-  const item = objectValue(value)
-  const sessionId = stringValue(item?.sessionId) ?? stringValue(item?.session_id)
-  const id = stringValue(item?.id) ?? stringValue(item?.terminalId) ?? stringValue(item?.terminal_id) ?? sessionId
-  const stateValue = stringValue(item?.state) ?? stringValue(item?.status)
-  if (!id || !stateValue) return null
-  const argv = Array.isArray(item?.argv) ? item.argv.filter((entry): entry is string => typeof entry === 'string') : undefined
-  return {
-    id,
-    sessionId: sessionId ?? undefined,
-    state: stateValue,
-    argv,
-    cwd: stringValue(item?.cwd) ?? undefined,
-    output: stringValue(item?.output) ?? undefined,
-    offset: numberValue(item?.offset) ?? numberValue(item?.outputOffset),
-    outputOffset: numberValue(item?.outputOffset),
-    nextOffset: numberValue(item?.nextOffset),
-    exitCode: numberValue(item?.exitCode),
-    startedAt: stringValue(item?.startedAt) ?? stringValue(item?.started_at) ?? undefined,
-    endedAt: stringValue(item?.endedAt) ?? stringValue(item?.ended_at),
-    owner: stringValue(item?.owner),
-  }
-}
-
-function approvalsFromPayload(value: JsonValue | undefined): WorkbenchState['approvals'] {
-  const approvals: WorkbenchState['approvals'] = {}
-  for (const approval of arrayObjects(value)) {
-    const requestId = stringValue(approval.requestId)
-    if (requestId) approvals[requestId] = approval
-  }
-  return approvals
-}
-
-function sessionRuntimesFromPayload(value: JsonValue | undefined): Record<string, SessionRuntimeProjection> {
-  const sessions: Record<string, SessionRuntimeProjection> = {}
-  for (const item of arrayObjects(value)) {
-    const sessionId = stringValue(item.sessionId)
-    if (!sessionId) continue
-    sessions[sessionId] = {
-      sessionId,
-      workspace: stringValue(item.workspace),
-      ready: item.ready === true,
-      state: stringValue(item.state) ?? 'unconfigured',
-      activeTurn: stringValue(item.activeTurn),
-      queuedTurnCount: numberValue(item.queuedCount) ?? 0,
-      turnRequested: item.turnRequested === true,
-    }
-  }
-  return sessions
-}
-
-function runtimeFromPayload(value: JsonValue | undefined, previous: RuntimeProjection): RuntimeProjection {
-  const snapshot = objectValue(value)
-  if (!snapshot) return previous
-  return {
-    ...previous,
-    ready: typeof snapshot.ready === 'boolean' ? snapshot.ready : previous.ready,
-    state: stringValue(snapshot.state) ?? previous.state,
-    mode: stringValue(snapshot.mode) ?? previous.mode,
-    autonomy: stringValue(snapshot.autonomy) ?? previous.autonomy,
-    hostSessionId: stringValue(snapshot.hostSessionId),
-    activeTurn: stringValue(snapshot.activeTurn),
-    queuedTurnCount: numberValue(snapshot.queuedCount) ?? 0,
-    activeSessions: snapshot.activeSessions === undefined
-      ? previous.activeSessions ?? {} : sessionRuntimesFromPayload(snapshot.activeSessions),
-    streamRecovery: null,
-  }
 }
 
 export function createWorkbenchStore(options: StoreOptions = {}) {
@@ -695,6 +260,9 @@ export function createWorkbenchStore(options: StoreOptions = {}) {
     const snapshotHistory = historyFromPayload(payload.history)
     const previousSessionId = stringValue(state.selectedSession?.id)
     const nextSessionId = stringValue(selectedSession?.id)
+    // Sub-agents stay while the same sidecar runs them; the snapshot lists the ones still at
+    // work, including any whose events were dropped while this window waited for it.
+    const subagents = subagentsFromPayload(payload.subagents, state.subagents && state.runtime.epoch === epoch ? state.subagents : {})
     const preserveLoadedHistory = Boolean(
       previousSessionId &&
       previousSessionId === nextSessionId &&
@@ -743,6 +311,7 @@ export function createWorkbenchStore(options: StoreOptions = {}) {
       // phones stay while the same sidecar runs them.
       ...(state.deviceNotices ? { deviceNotices: state.deviceNotices } : {}),
       ...(state.phoneJobs && state.runtime.epoch === epoch ? { phoneJobs: state.phoneJobs } : {}),
+      ...(Object.keys(subagents).length > 0 ? { subagents } : {}),
     }
     rememberForegroundRuntime()
     for (const page of [...recoverableHistoryPages.values()].sort((left, right) => left.sequence - right.sequence)) {
@@ -1702,8 +1271,10 @@ export function createWorkbenchStore(options: StoreOptions = {}) {
       ])
     }
 
-    if (belongsToSelection && (event.type === 'turn.failed' || event.type === 'session.forked')) {
-      // Why a turn stopped (and where a fork came from) is shown in the conversation.
+    if (belongsToSelection && (event.type === 'turn.failed' || event.type === 'session.forked' ||
+      event.type === 'turn.files.changed' || event.type === 'turn.files.undone')) {
+      // Why a turn stopped, where a fork came from and the files a turn changed are shown in the
+      // conversation.
       state.timeline = mergeTimeline(state.timeline, [{
         id: stringValue(payload.eventId) ?? `wire-${event.sequence}`,
         type: event.type,
@@ -1732,12 +1303,50 @@ export function createWorkbenchStore(options: StoreOptions = {}) {
       }
     }
 
+    if (event.type === 'checks.started' || event.type === 'checks.finished') {
+      // The folder's checks, after a turn or from the Changes page: running, then the results.
+      const workspace = stringValue(payload.workspace)
+      if (workspace) {
+        const previous = state.checks?.workspace === workspace ? state.checks : undefined
+        state.checks = event.type === 'checks.started'
+          ? {
+              workspace,
+              running: true,
+              names: Array.isArray(payload.checks) ? payload.checks.filter((name): name is string => typeof name === 'string') : [],
+              sessionId: stringValue(payload.sessionId) ?? undefined,
+              results: previous?.results ?? [],
+              finishedAt: previous?.finishedAt,
+            }
+          : { workspace, running: false, names: previous?.names ?? [], sessionId: previous?.sessionId, results: checkResultsFrom(payload.results), finishedAt: Date.now() }
+      }
+    }
+
     if (event.type === 'agent.run.updated' && payload.delegated === true) {
       const runId = stringValue(payload.runId)
       const title = stringValue(payload.title)
       const runState = stringValue(payload.state)
       if (runId && title && runState && event.sessionId) {
-        state.subagents = withSubagent(state.subagents ?? {}, { runId, sessionId: event.sessionId, title, state: runState })
+        const expert = stringValue(payload.expert)
+        const previous = state.subagents?.[runId]
+        state.subagents = withSubagent(state.subagents ?? {}, {
+          ...previous,
+          runId, sessionId: event.sessionId, title, state: runState,
+          ...(expert ? { expert, phase: payload.phase === 'review' ? 'review' : 'work' } : {}),
+        })
+      }
+    } else if (event.type === 'agent.run.activity') {
+      const runId = stringValue(payload.runId)
+      const previous = runId ? state.subagents?.[runId] : undefined
+      if (previous) {
+        const tool = stringValue(payload.tool)
+        state.subagents = {
+          ...state.subagents,
+          [previous.runId]: {
+            ...previous,
+            activity: payload.activity === 'tool' ? 'tool' : 'thinking',
+            ...(tool ? { tool } : { tool: undefined }),
+          },
+        }
       }
     }
 
@@ -1994,115 +1603,3 @@ export function createWorkbenchStore(options: StoreOptions = {}) {
 
 export type WorkbenchStore = ReturnType<typeof createWorkbenchStore>
 
-export interface PresentedSession {
-  id: string
-  workspace: string
-  rawTitle: string
-  title: string
-  mode: string
-  autonomy: string
-  pinned: boolean
-  archived: boolean
-  version: number
-}
-
-export function selectPresentedSessions(
-  state: WorkbenchState,
-  options?: {
-    query?: string
-    includeArchived?: boolean
-    onlyArchived?: boolean
-  },
-): PresentedSession[] {
-  const normalized = (options?.query ?? '').trim().toLocaleLowerCase()
-  const includeArchived = options?.includeArchived ?? false
-  const onlyArchived = options?.onlyArchived ?? false
-
-  const results: PresentedSession[] = []
-
-  for (const session of state.sessions) {
-    const id = typeof session.id === 'string' ? session.id : ''
-    if (!id) continue
-    const presentation = state.operational.sessionPresentation[id]
-    const pinned = presentation?.pinned === true
-    const archived = presentation?.archived === true
-    const version = presentation?.version ?? 1
-
-    if (onlyArchived) {
-      if (!archived) continue
-    } else if (!includeArchived && archived) {
-      continue
-    }
-
-    const rawTitle = typeof session.title === 'string' ? session.title : ''
-    const title = presentation?.alias || rawTitle || 'Untitled session'
-    const sessionWorkspaceValue: unknown = session.workspace
-    const sessionWorkspace = typeof sessionWorkspaceValue === 'string' ? sessionWorkspaceValue : ''
-    const currentWorkspacePathValue: unknown = state.workspace?.path
-    const currentWorkspacePath = typeof currentWorkspacePathValue === 'string' ? currentWorkspacePathValue : ''
-    const workspace = sessionWorkspace.trim() ? sessionWorkspace : currentWorkspacePath
-    const mode = typeof session.mode === 'string' ? session.mode : 'coding'
-    const autonomy = typeof session.autonomy === 'string' ? session.autonomy : 'workspace'
-
-    if (
-      normalized &&
-      !title.toLocaleLowerCase().includes(normalized) &&
-      !rawTitle.toLocaleLowerCase().includes(normalized)
-    ) {
-      continue
-    }
-
-    results.push({
-      id,
-      workspace,
-      rawTitle,
-      title,
-      mode,
-      autonomy,
-      pinned,
-      archived,
-      version,
-    })
-  }
-
-  return results.sort((left, right) => Number(right.pinned) - Number(left.pinned))
-}
-
-export interface PresentedWorkspaceGroup extends Omit<WorkspaceConversationGroup, 'sessions' | 'sessionPresentation'> {
-  sessions: PresentedSession[]
-  current: boolean
-}
-
-export function selectWorkspaceGroups(state: WorkbenchState, options: { query?: string } = {}): PresentedWorkspaceGroup[] {
-  const groups = rememberCurrentWorkspace(state).groups.map(group => ({ ...group }))
-  for (const workspace of state.recentWorkspaces ?? []) {
-    if (!groups.some(group => workspacePathKey(group.path) === workspacePathKey(workspace.path))) {
-      groups.push({ ...workspace, sessions: [], sessionPresentation: {}, hasMore: false, nextOffset: null })
-    }
-  }
-  const currentPath = stringValue(state.workspace?.path) ?? ''
-  if (currentPath && !groups.some(group => workspacePathKey(group.path) === workspacePathKey(currentPath))) {
-    groups.unshift({ path: currentPath, name: stringValue(state.workspace?.name) ?? currentPath,
-      lastUsed: 0, sessions: [], sessionPresentation: {}, hasMore: false, nextOffset: null })
-  }
-  // Embedded clients may already supply global session summaries.
-  for (const session of state.sessions) {
-    const path = stringValue(session.workspace) || currentPath
-    const group = groups.find(item => workspacePathKey(item.path) === workspacePathKey(path))
-    if (group) group.sessions = mergeDirectorySessions(group.sessions, [session])
-    else groups.push({ path, name: path.split(/[\\/]/).filter(Boolean).at(-1) || 'No workspace', lastUsed: 0,
-      sessions: [session], sessionPresentation: {}, hasMore: false, nextOffset: null })
-  }
-  const query = (options.query ?? '').trim().toLocaleLowerCase()
-  return groups.flatMap(group => {
-    const current = workspacePathKey(group.path) === workspacePathKey(currentPath)
-    const folderMatches = query && `${group.name} ${group.path}`.toLocaleLowerCase().includes(query)
-    const sessions = selectPresentedSessions({ ...state, workspace: { path: group.path }, sessions: group.sessions,
-      operational: { ...state.operational, sessionPresentation: current
-        ? { ...group.sessionPresentation, ...state.operational.sessionPresentation } : group.sessionPresentation },
-    }, { query: folderMatches ? '' : query })
-    if (query && !folderMatches && sessions.length === 0) return []
-    return [{ path: group.path, name: group.name, lastUsed: group.lastUsed, hasMore: group.hasMore,
-      nextOffset: group.nextOffset, sessions, current }]
-  })
-}

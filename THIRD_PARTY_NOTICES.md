@@ -14,8 +14,45 @@ This summary lists the components the Windows release ships; it does not replace
   [rehype-sanitize](https://github.com/rehypejs/rehype-sanitize) (MIT), [KaTeX](https://github.com/KaTeX/KaTeX)
   (MIT), [Shiki](https://github.com/shikijs/shiki) (MIT), [TanStack Virtual](https://github.com/TanStack/virtual)
   (MIT), [Lucide](https://github.com/lucide-icons/lucide) (ISC), [Zod](https://github.com/colinhacks/zod) (MIT),
-  [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) (MIT) and
-  [electron-updater](https://github.com/electron-userland/electron-builder) (MIT).
+  [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) (MIT),
+  [electron-updater](https://github.com/electron-userland/electron-builder) (MIT), the LaTeX
+  editor's [CodeMirror](https://github.com/codemirror/dev) packages and
+  [Lezer highlight](https://github.com/lezer-parser/highlight) (MIT), its visual editor's
+  [ProseMirror](https://github.com/ProseMirror) packages (MIT, Copyright Marijn Haverbeke and
+  others), [PDF.js](https://github.com/mozilla/pdf.js) (`pdfjs-dist`, Apache-2.0), and the studio's
+  [three.js](https://github.com/mrdoob/three.js) (MIT, Copyright 2010-2026 three.js authors).
+
+## Code adapted from other projects
+
+- The LaTeX editor follows [TeXButler](https://github.com/WhitePepperLambSoup/texbutler)
+  (MIT, Copyright 2026 WhitePepperLambSoup): its log parser, source rules and fixes, SyncTeX
+  search, compile scheduling, starter documents, command and symbol lists were rewritten in
+  Python and TypeScript for this app, and its visual (Word-like) editor of version 1.0.0 is
+  included in `desktop/src/renderer/src/latex/visual/` with small changes.
+- The figure helpers of the scientific Python environment follow
+  [Quick SciPlot](https://github.com/WhitePepperLambSoup/quick-sciplot) (MIT, Copyright 2026
+  WhitePepperLambSoup): journal styles, exports, statistics annotations, figure templates and
+  layouts, journal checks, and dragging data points back to the data rows.
+- The slide-deck skill (`desktop/skills/official/skills/slide-deck`) follows the planning
+  method of [PPT Master](https://github.com/hugohe3/ppt-master) (MIT, Copyright (c) 2025-2026
+  Hugo He): the communication goal settled before the pages, one claim per slide with a
+  conclusion as its title, a closing slide that states the takeaway, density by delivery mode,
+  native charts, and the way speaker notes are written. Its text is our own; no code is copied.
+- The refraction of the liquid glass material (`desktop/src/renderer/src/effects/liquid-glass/`)
+  follows [liquid-glass](https://github.com/xiaojiaenen/liquid-glass) (MIT, Copyright (c)
+  xiaojiaenen): a displacement map from Snell's law over a squircle bezel and a rim highlight,
+  used as an SVG backdrop filter; its frosted fallback follows
+  [LiquidGlass](https://github.com/LGOS-Studio/LiquidGlass) (MIT, Copyright (c) LGOS Studio). The
+  code is our own.
+- The studio's figures (`desktop/src/renderer/src/studio/`) follow the office of
+  [Claw3D](https://github.com/iamlukethedev/Claw3D) (MIT, Copyright (c) iamlukethedev): people
+  built from boxes with a sine walk cycle, desks, and status and speech labels over their heads.
+  The code is our own.
+
+All of these are under the MIT license: permission is granted, free of charge, to deal in the software
+without restriction, provided the copyright notice and the permission notice are included in all
+copies or substantial portions of the software; the software is provided "as is", without
+warranty of any kind.
 
 ## Python runtime (the sidecar)
 

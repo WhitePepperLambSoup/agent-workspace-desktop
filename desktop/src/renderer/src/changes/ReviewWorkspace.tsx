@@ -6,13 +6,16 @@ import {
   GitPullRequest,
   MessageSquarePlus,
   RefreshCw,
+  ScrollText,
   ShieldCheck,
+  Sparkles,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { WorkbenchBridgeClient } from '../bridge/client'
-import { useText } from '../i18n/I18nProvider'
+import { useOptionalI18n, useText } from '../i18n/I18nProvider'
 import type { WorkbenchState } from '../state/workbench-store'
+import { gitErrorKey } from './GitPanel'
 
 type ReviewClient = Partial<
   Pick<
@@ -26,6 +29,9 @@ type ReviewClient = Partial<
     | 'createDraftPullRequest'
     | 'refreshPullRequest'
     | 'listAgentRuns'
+    | 'reviewWithModel'
+    | 'ciLog'
+    | 'startTurn'
   >
 >
 
@@ -72,6 +78,7 @@ interface ReviewCommentView {
   body: string
   state: 'open' | 'resolved'
   followupRunId: string | null
+  author?: string
 }
 
 interface ReviewDeliveryView {
@@ -127,6 +134,10 @@ function errorMessage(reason: unknown): string {
     pull_request_url_missing: 'GitHub created no readable pull request URL.',
     invalid_github_response: 'GitHub returned an unreadable pull request response.',
     pull_request_exists: 'A pull request already exists for this snapshot. Refresh its status.',
+    review_timeout: 'The model took too long to review. Try again or review a smaller change.',
+    review_failed: 'The model could not review this change. Check the model in Settings.',
+    review_unreadable: 'The model answered in a form that could not be read. Try again.',
+    provider_unconfigured: 'Add a model in Settings first.',
   }
   return known[raw] ?? raw
 }
@@ -139,6 +150,10 @@ export function ReviewWorkspace({
   client?: ReviewClient
 }) {
   const tx = useText()
+  const { locale, t } = useOptionalI18n()
+  const [reviewing, setReviewing] = useState(false)
+  const [checkLog, setCheckLog] = useState<{ check: DeliveryCheckView; text: string } | null>(null)
+  const [loadingLog, setLoadingLog] = useState<string | null>(null)
   const [snapshots, setSnapshots] = useState<ReviewSnapshotView[]>([])
   const [runs, setRuns] = useState<AgentRunOption[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -320,6 +335,59 @@ export function ReviewWorkspace({
     }
   }
 
+  const reviewWithModel = async () => {
+    if (!client?.reviewWithModel || !snapshot || reviewing) return
+    const snapshotId = snapshot.id
+    setReviewing(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const reply = await client.reviewWithModel(snapshotId, locale)
+      if (selectedIdRef.current !== snapshotId) return
+      applyDetails(reply.payload)
+      const result = payloadObject(reply.payload)
+      const found = typeof result.aiFindings === 'number' ? result.aiFindings : 0
+      const skipped = typeof result.aiSkipped === 'number' ? result.aiSkipped : 0
+      setNotice(
+        found === 0
+          ? tx('The model found no problems in this change.')
+          : skipped > 0
+            ? tx('Model comments added: {count}. {skipped} could not be placed on the diff.', { count: found, skipped })
+            : tx('Model comments added: {count}.', { count: found }),
+      )
+    } catch (reason) {
+      if (selectedIdRef.current === snapshotId) setError(tx(errorMessage(reason)))
+    } finally {
+      setReviewing(false)
+    }
+  }
+
+  const showCheckLog = async (check: DeliveryCheckView) => {
+    if (!client?.ciLog || !check.url) return
+    setLoadingLog(check.name)
+    setError(null)
+    try {
+      const reply = await client.ciLog(check.url)
+      const payload = payloadObject(reply.payload)
+      if (typeof payload.error === 'string') setError(t(gitErrorKey(payload.error)))
+      else setCheckLog({ check, text: typeof payload.log === 'string' && payload.log ? payload.log : t('git.ci.noLog') })
+    } catch (reason) {
+      setError(t(gitErrorKey(reason instanceof Error ? reason.message : String(reason))))
+    } finally {
+      setLoadingLog(null)
+    }
+  }
+
+  const fixCheck = async () => {
+    if (!client?.startTurn || !checkLog) return
+    try {
+      await client.startTurn(t('git.ci.prompt', { workflow: checkLog.check.name, branch: delivery?.headBranch ?? '', log: checkLog.text }))
+      setNotice(t('git.sent'))
+    } catch {
+      setError(t('changes.hunkCommentFailed'))
+    }
+  }
+
   const resolveComment = async (commentId: string) => {
     if (!client?.resolveReviewComment || !snapshot) return
     try {
@@ -435,6 +503,12 @@ export function ReviewWorkspace({
               <header className="review-snapshot-header">
                 <div><p className="section-kicker">{snapshot.diffSha256.slice(0, 12)}</p><h2>{snapshot.fileCount} {tx('changed files')}</h2></div>
                 <code>{snapshot.baseSha.slice(0, 8)} → {snapshot.headSha.slice(0, 8)}</code>
+                {client?.reviewWithModel ? (
+                  <button type="button" className="secondary-button review-ai-button" onClick={() => void reviewWithModel()} disabled={reviewing} aria-busy={reviewing}>
+                    {reviewing ? <RefreshCw size={13} className="is-spinning" /> : <Sparkles size={13} />}
+                    {reviewing ? tx('Reviewing…') : tx('AI review')}
+                  </button>
+                ) : null}
               </header>
               <div className="review-file-tabs">
                 {snapshot.files?.map((file) => (
@@ -485,8 +559,8 @@ export function ReviewWorkspace({
           <section className="review-comments-card glass-surface">
             <header><h2>{tx('Review comments')}</h2><span>{comments.filter((comment) => comment.state === 'open').length}</span></header>
             {comments.map((comment) => (
-              <article key={comment.id} className={`review-comment state-${comment.state}`}>
-                <code>{comment.path}:{comment.line} · {tx(comment.side)}</code>
+              <article key={comment.id} className={`review-comment state-${comment.state}${comment.author === 'ai' ? ' is-ai' : ''}`}>
+                <code>{comment.path}:{comment.line} · {tx(comment.side)}{comment.author === 'ai' ? <span className="review-ai-badge">AI</span> : null}</code>
                 <p>{comment.body}</p>
                 {comment.followupRunId ? <small><Bot size={12} />{comment.followupRunId}</small> : null}
                 {comment.state === 'open' ? <div><button type="button" className="secondary-button" aria-label={tx('Send to agent')} onClick={() => void followup(comment)} disabled={Boolean(comment.followupRunId)}><Bot size={12} />{tx('Send to agent')}</button><button type="button" className="secondary-button" onClick={() => void resolveComment(comment.id)}><Check size={12} />{tx('Resolve')}</button></div> : null}
@@ -507,8 +581,17 @@ export function ReviewWorkspace({
             </> : null}
             <div className="review-pr-actions">{!delivery?.prUrl ? <button type="button" className="primary-button" aria-label={tx('Create draft PR')} onClick={() => void createPullRequest()} disabled={!snapshot || !prTitle.trim() || !baseBranch.trim() || (Boolean(snapshot?.workingTreeDirty) && !commitTitle.trim()) || busy}><GitPullRequest size={13} />{tx('Create draft PR')}</button> : null}{delivery?.prUrl ? <button type="button" className="secondary-button" aria-label={tx('Refresh PR status')} onClick={() => void refreshPullRequest()}><RefreshCw size={12} />{tx('Refresh PR status')}</button> : null}</div>
             <div className="review-checks">
-              {checks.map((check) => <div key={check.name} className={`review-check state-${check.state}`}><CircleDot size={11} /><span><strong>{check.name}</strong>{check.detail ? <small>{check.detail}</small> : null}</span><em>{tx(check.state.replaceAll('_', ' '))}</em></div>)}
+              {checks.map((check) => <div key={check.name} className={`review-check state-${check.state}`}><CircleDot size={11} /><span><strong>{check.name}</strong>{check.detail ? <small>{check.detail}</small> : null}</span><em>{tx(check.state.replaceAll('_', ' '))}</em>{client?.ciLog && check.url?.includes('/actions/runs/') && (check.state === 'failure' || check.state === 'timed_out') ? <button type="button" className="secondary-button" disabled={loadingLog !== null} onClick={() => void showCheckLog(check)}><ScrollText size={11} />{t('git.ci.log')}</button> : null}</div>)}
             </div>
+            {checkLog ? (
+              <div className="git-log">
+                <pre aria-label={t('git.ci.logOf', { workflow: checkLog.check.name })}>{checkLog.text}</pre>
+                <div className="git-row-actions">
+                  {client?.startTurn ? <button type="button" className="primary-button" onClick={() => void fixCheck()}>{t('git.ci.fix')}</button> : null}
+                  <button type="button" className="secondary-button" onClick={() => setCheckLog(null)}>{t('git.close')}</button>
+                </div>
+              </div>
+            ) : null}
           </section>
         </aside>
       </div>

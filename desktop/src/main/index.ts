@@ -1,15 +1,18 @@
-import { existsSync, writeFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import { existsSync, mkdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { release } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 
-import { BrowserWindow, Menu, Notification, app, clipboard, crashReporter, dialog, ipcMain, nativeImage, nativeTheme, screen, session, shell } from 'electron'
+import { BrowserWindow, Menu, Notification, WebContentsView, app, clipboard, crashReporter, dialog, globalShortcut, ipcMain, nativeImage, nativeTheme, protocol, screen, session, shell } from 'electron'
+
+import { z } from 'zod'
 
 import { nativeAppearanceRequestSchema } from '../shared/appearance'
 import { desktopNotificationSchema, updateFeedSchema, type AppInfo, type UpdateStatus } from '../shared/desktop'
 import { uiCommandSchema } from '../shared/api'
 import { ATTACHMENT_LIMITS, type AttachmentImportFile } from '../shared/attachments'
 import { validateAttachmentImports } from '../shared/attachment-validation'
-import { responseEnvelopeSchema } from '../shared/protocol'
 import { windowActionSchema } from '../shared/window'
 import { applyNativeAppearance } from './appearance'
 import {
@@ -24,6 +27,7 @@ import { SidecarClient } from './sidecar'
 import { performWindowAction } from './window-controls'
 import { AttachmentRegistry } from './attachments'
 import { clipboardHasAttachments, readClipboardAttachments } from './native-clipboard'
+import { captureClipboard, QuickActionsShortcut, quickActionsSettingsSchema, type QuickCapture } from './quick-actions'
 import { QuitCoordinator } from './quit-coordinator'
 import { resolveDevelopmentPython } from './python-runtime'
 import { RendererEventBuffer } from './renderer-event-buffer'
@@ -35,10 +39,43 @@ import { resolveWorkspaceImage } from './workspace-image'
 import { RendererRecoveryPolicy } from './crash-recovery'
 import { MINIMUM_WINDOW_SIZE, readWindowState, restoreBounds, writeWindowState } from './window-state'
 import { UpdateController, type UpdaterEngine } from './updater'
+import { PREVIEW_PARTITION, PREVIEW_SCHEME, PreviewPanel, resolvePreviewFile } from './preview'
+import { previewActionSchema, previewBoundsSchema, previewTargetSchema } from '../shared/preview'
 
 // Installers and latest.yml are attached to each GitHub release; "latest/download" always points
 // at the newest one, which is what installed copies check.
 const RELEASE_UPDATE_FEED = 'https://github.com/WhitePepperLambSoup/agent-workspace-desktop/releases/latest/download'
+// A thesis with many figures; larger PDFs open in the preview panel instead.
+const MAX_EDITOR_PDF_BYTES = 200 * 1024 * 1024
+const MAX_FIGURE_BYTES = 30 * 1024 * 1024
+const exportPdfSchema = z.object({
+  html: z.string().min(1).max(4 * 1024 * 1024),
+  css: z.string().max(4 * 1024 * 1024),
+  title: z.string().max(300),
+}).strict()
+// Print layout for an exported answer: black on white, readable widths, code and tables kept.
+const EXPORT_PAGE_CSS = `
+body { margin: 0; color: #111; background: #fff; font: 11pt/1.6 "Segoe UI", "Microsoft YaHei", sans-serif; }
+.markdown-body { max-width: 100%; }
+.markdown-body pre, .markdown-body code { font-family: Consolas, "Cascadia Mono", monospace; font-size: 9.5pt; white-space: pre-wrap; }
+.markdown-body pre { background: #f5f5f5; padding: 8px; border-radius: 4px; }
+.markdown-body table { border-collapse: collapse; }
+.markdown-body th, .markdown-body td { border: 1px solid #bbb; padding: 3px 6px; }
+.markdown-body img { max-width: 100%; }
+.markdown-body button.markdown-link { all: unset; color: #1a56db; text-decoration: underline; }
+`
+
+function exportFileName(title: string, suffix: string): string {
+  const words = title.trim().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'answer'
+  const now = new Date()
+  const pad = (value: number) => String(value).padStart(2, '0')
+  const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
+  return `${words}-${stamp}${suffix}`
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[character] ?? character)
+}
 
 // Acceptance tests provide an isolated profile so parallel Electron processes do not
 // contend for the default Windows Chromium lock. Ordinary launches leave this unset.
@@ -94,6 +131,11 @@ function sidecarOptions(): ConstructorParameters<typeof SidecarClient>[0] {
   }
 }
 
+// Folder files shown in the preview panel; registered before the app is ready, as Electron requires.
+protocol.registerSchemesAsPrivileged([
+  { scheme: PREVIEW_SCHEME, privileges: { standard: true, secure: true, stream: true } },
+])
+
 const isIsolatedTestInstance = process.env.AGENT_WORKSPACE_E2E === '1' && testUserData !== undefined
 // Acceptance tests run on the developer's own desktop: their windows open past the left edge of
 // every display, without taking focus or a taskbar button. Specs that read the real screen set
@@ -121,6 +163,45 @@ const attachmentRegistry = new AttachmentRegistry((data) => {
 })
 let activeWorkspace: string | null = null
 let unprotectedEditorDrafts = false
+let previewPanel: PreviewPanel | null = null
+
+function setActiveWorkspace(path: string | null): void {
+  if (path !== activeWorkspace) previewPanel?.closeFiles()
+  activeWorkspace = path
+  attachmentRegistry.setWorkspace(path)
+}
+
+function createPreviewPanel(): PreviewPanel {
+  const previewSession = session.fromPartition(PREVIEW_PARTITION)
+  // Sites see an ordinary Chrome, not this app's name.
+  const escapedName = app.getName().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  previewSession.setUserAgent(previewSession.getUserAgent()
+    .replace(new RegExp(`\\s(?:Electron|${escapedName})/\\S+`, 'gi'), ''))
+  return new PreviewPanel(previewSession, {
+    window: () => mainWindow,
+    workspace: () => activeWorkspace,
+    publish: (state) => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('agent-workspace:preview-state', state)
+    },
+    openExternal: (url) => void shell.openExternal(url),
+    createView: (viewSession) => new WebContentsView({
+      webPreferences: {
+        session: viewSession,
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+        webSecurity: true,
+        allowRunningInsecureContent: false,
+        // Chromium's PDF viewer.
+        plugins: true,
+        spellcheck: false,
+        safeDialogs: true,
+        navigateOnDragDrop: false,
+        autoplayPolicy: 'document-user-activation-required',
+      },
+    }),
+  })
+}
 
 function requestQuitAfterStorageFlush(): void {
   try {
@@ -258,6 +339,8 @@ function createWindow(): BrowserWindow {
   window.webContents.on('did-start-loading', () => {
     rendererEvents?.markUnavailable()
     unprotectedEditorDrafts = false
+    // A reloaded window has no panel to hold the preview.
+    previewPanel?.close()
   })
   refreshMainWindowShape = installNativeWindowShape(window, process.platform, nativeRounding)
   if (offscreenTestWindow) {
@@ -378,21 +461,19 @@ function registerCapabilities(client: SidecarClient): void {
       if (attachmentPaths.length > 0) payload.attachmentPaths = attachmentPaths
       forwarded = { ...command, payload }
     }
-    const response = responseEnvelopeSchema.parse(await client.invokeForRenderer(forwarded))
+    // The sidecar client validated the response when it read it from the sidecar.
+    const response = await client.invokeForRenderer(forwarded)
     if (command.type === 'workspace.open' && response.type === 'workspace.open.result') {
       const path = response.payload.workspace && typeof response.payload.workspace === 'object'
         ? (response.payload.workspace as { path?: unknown }).path : null
-      activeWorkspace = typeof path === 'string' ? path : null
-      attachmentRegistry.setWorkspace(activeWorkspace)
+      setActiveWorkspace(typeof path === 'string' ? path : null)
     } else if (command.type === 'app.bootstrap') {
       const workspace = response.payload.workspace
       const path = workspace && typeof workspace === 'object' ? (workspace as { path?: unknown }).path : null
       if (typeof path === 'string') {
-        activeWorkspace = path
-        attachmentRegistry.setWorkspace(path)
+        setActiveWorkspace(path)
       } else if (workspace === null) {
-        activeWorkspace = null
-        attachmentRegistry.setWorkspace(null)
+        setActiveWorkspace(null)
       }
     } else if ((command.type === 'turn.start' && response.type === 'turn.start.result') ||
       (command.type === 'turn.steer' && response.type === 'turn.steer.result' && response.payload.accepted === true)) {
@@ -502,6 +583,18 @@ function registerCapabilities(client: SidecarClient): void {
     clipboard.writeText(input)
     return true
   })
+  // The global shortcut for the quick actions. Test instances never take a system-wide key; they
+  // open the actions through the hook below.
+  trustedHandle('agent-workspace:quick-actions-configure', (_event, input: unknown) => {
+    const parsed = quickActionsSettingsSchema.safeParse(input)
+    if (!parsed.success) return { ok: false, error: 'invalid' }
+    if (isIsolatedTestInstance) return { ok: true }
+    return quickActionsShortcut.configure(parsed.data)
+  })
+  if (isIsolatedTestInstance) {
+    ;(globalThis as { agentWorkspaceTestQuickActions?: (capture: QuickCapture) => void }).agentWorkspaceTestQuickActions =
+      (capture) => openQuickActions(capture)
+  }
   ipcMain.handle('agent-workspace:set-appearance', (event, input: unknown) => {
     if (
       !mainWindow ||
@@ -552,7 +645,21 @@ function registerCapabilities(client: SidecarClient): void {
   client.subscribe((event) => rendererEvents?.publish(event))
 }
 
-function isTrustedEvent(event: Electron.IpcMainInvokeEvent): boolean {
+/** The window brought forward with the quick actions on what the clipboard holds. */
+function openQuickActions(capture: QuickCapture): void {
+  const window = mainWindow
+  if (!window || window.isDestroyed()) return
+  if (!offscreenTestWindow) {
+    if (window.isMinimized()) window.restore()
+    window.show()
+    window.focus()
+  }
+  window.webContents.send('agent-workspace:quick-actions', capture)
+}
+
+const quickActionsShortcut = new QuickActionsShortcut(globalShortcut, () => openQuickActions(captureClipboard(clipboard)))
+
+function isTrustedEvent(event: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent): boolean {
   return Boolean(mainWindow && isTrustedIpcSender(
     event.sender, event.senderFrame, mainWindow.webContents, mainWindow.webContents.mainFrame,
   ))
@@ -639,6 +746,68 @@ function registerDesktopCapabilities(): void {
     // Bounded so a full-page capture never exceeds the IPC budget.
     return (width > 720 ? image.resize({ width: 720, quality: 'good' }) : image).toDataURL()
   })
+  // The LaTeX editor's PDF view draws the open folder's PDF itself (for SyncTeX); it gets bytes.
+  trustedHandle('agent-workspace:read-pdf', async (_event, input) => {
+    if (!activeWorkspace || typeof input !== 'string' || !/\.pdf$/i.test(input)) return null
+    const path = resolvePreviewFile(activeWorkspace, input)
+    if (!path || statSync(path).size > MAX_EDITOR_PDF_BYTES) return null
+    return new Uint8Array(await readFile(path))
+  })
+  // The figure point editor draws a figure of the open folder under its handles, at full size.
+  trustedHandle('agent-workspace:read-figure', async (_event, input) => {
+    if (!activeWorkspace || typeof input !== 'string' || !/\.(png|jpe?g)$/i.test(input)) return null
+    const path = resolvePreviewFile(activeWorkspace, input)
+    if (!path || statSync(path).size > MAX_FIGURE_BYTES) return null
+    const data = await readFile(path)
+    return `data:${/\.png$/i.test(path) ? 'image/png' : 'image/jpeg'};base64,${data.toString('base64')}`
+  })
+  // An answer as a PDF in the open folder's exports/: the page as the window shows it (formulas
+  // too), printed by a hidden window that runs no scripts.
+  trustedHandle('agent-workspace:export-pdf', async (_event, input) => {
+    const request = exportPdfSchema.safeParse(input)
+    if (!request.success || !activeWorkspace) return null
+    const folder = join(activeWorkspace, 'exports')
+    mkdirSync(folder, { recursive: true })
+    const base = exportFileName(request.data.title, '')
+    let name = `${base}.pdf`
+    for (let number = 2; existsSync(join(folder, name)); number += 1) name = `${base}-${number}.pdf`
+    const page = join(app.getPath('temp'), `aw-export-${randomUUID()}.html`)
+    // Nothing on the page reaches the network: the formula fonts come from the app's own files.
+    const policy = "default-src 'none'; style-src 'unsafe-inline'; font-src file: data:; img-src file: data:"
+    writeFileSync(page, `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${policy}"><title>${escapeHtml(request.data.title)}</title><style>${request.data.css}\n${EXPORT_PAGE_CSS}</style></head><body><main class="markdown-body">${request.data.html}</main></body></html>`)
+    const printer = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, javascript: false, partition: 'agent-workspace-export' } })
+    try {
+      await printer.loadFile(page)
+      const pdf = await printer.webContents.printToPDF({ printBackground: true, pageSize: 'A4' })
+      writeFileSync(join(folder, name), pdf)
+      return `exports/${name}`
+    } catch {
+      return null
+    } finally {
+      printer.destroy()
+      try { unlinkSync(page) } catch { /* the temp folder is cleaned anyway */ }
+    }
+  })
+  // A Jupyter notebook for the reader; its pictures make it larger than a sidecar reply.
+  trustedHandle('agent-workspace:read-notebook', async (_event, input) => {
+    if (!activeWorkspace || typeof input !== 'string' || !/\.ipynb$/i.test(input)) return null
+    const path = resolvePreviewFile(activeWorkspace, input)
+    if (!path || statSync(path).size > MAX_FIGURE_BYTES) return null
+    return readFile(path, 'utf8')
+  })
+  trustedHandle('agent-workspace:preview-open', (_event, input) => {
+    const target = previewTargetSchema.safeParse(input)
+    return target.success && previewPanel !== null && previewPanel.open(target.data)
+  })
+  trustedHandle('agent-workspace:preview-action', (_event, input) => {
+    const action = previewActionSchema.safeParse(input)
+    return action.success && previewPanel !== null && previewPanel.act(action.data)
+  })
+  ipcMain.on('agent-workspace:preview-bounds', (event, input: unknown) => {
+    if (!isTrustedEvent(event)) return
+    const bounds = previewBoundsSchema.safeParse(input)
+    if (bounds.success) previewPanel?.setBounds(bounds.data)
+  })
   trustedHandle('agent-workspace:notify', (_event, input) => {
     const parsed = desktopNotificationSchema.safeParse(input)
     if (!parsed.success || !mainWindow || mainWindow.isDestroyed()) return false
@@ -695,6 +864,8 @@ async function startApplication(): Promise<void> {
   if (process.platform === 'win32') app.setAppUserModelId('local.agentworkspace.desktop')
   installContentSecurityPolicy()
   logger.info('Starting Agent Workspace', { version: app.getVersion(), packaged: app.isPackaged })
+  // Runs the JavaScript language servers (Pyright, TypeScript) when Node is not installed.
+  process.env.AGENT_WORKSPACE_ELECTRON_NODE = process.execPath
   sidecar = new SidecarClient(sidecarOptions())
   registerCapabilities(sidecar)
   registerDesktopCapabilities()
@@ -706,6 +877,8 @@ async function startApplication(): Promise<void> {
     sessionId: null,
   })
   mainWindow = createWindow()
+  previewPanel = createPreviewPanel()
+  mainWindow.on('closed', () => previewPanel?.close())
   try {
     await handshake
   } catch (error) {
@@ -729,3 +902,4 @@ if (!hasSingleInstanceLock) {
 app.on('before-quit', (event) => quitCoordinator.onBeforeQuit(event))
 
 app.on('window-all-closed', () => app.quit())
+app.on('will-quit', () => quickActionsShortcut.clear())

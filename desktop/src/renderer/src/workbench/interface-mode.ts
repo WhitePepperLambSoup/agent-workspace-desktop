@@ -9,7 +9,7 @@ export type InterfaceMode = 'simple' | 'full'
 export const INTERFACE_MODE_STORAGE_KEY = 'agent-workspace.interface.v1'
 export const INTERFACE_MODE_CHANGED_EVENT = 'agent-workspace:interface-mode'
 
-const SIMPLE_ACTIVITIES: ReadonlySet<string> = new Set(['agent', 'knowledge', 'schedules', 'workspace', 'settings'])
+const SIMPLE_ACTIVITIES: ReadonlySet<string> = new Set(['agent', 'studio', 'knowledge', 'schedules', 'workspace', 'settings'])
 
 export function readInterfaceMode(): InterfaceMode {
   try {

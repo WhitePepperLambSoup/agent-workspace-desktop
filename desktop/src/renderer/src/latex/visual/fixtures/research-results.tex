@@ -1,0 +1,73 @@
+\documentclass{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\graphicspath{{../figures/}{figures/}}
+\title{Growth of \textit{E. coli} stringent-response mutants}
+\author{Lab}
+\begin{document}
+\maketitle
+\section{Introduction}
+The stringent response shapes bacterial growth.
+\section{Results}
+
+To quantify how the stringent-response mutations affect growth, we fitted the
+integrated logistic model $y(t) = K\,[1 + e^{-r(t-t_{i})}]^{-1}$ to the
+OD$_{600}$ time series of each of the three biological replicates of every
+strain, treating the maximum specific growth rate $r$ and the carrying capacity
+$K$ as the parameters of interest. Sigmoidal models are the standard
+descriptors of bacterial growth curves, and expressing them through
+biologically interpretable parameters such as $r$ and $K$ makes the estimates
+directly comparable between strains and experiments
+\cite{monod1949growth,zwietering1990modeling,baranyi1994dynamic}. The
+three-parameter logistic described all nine curves essentially exactly
+($R^{2} = 0.994$--$0.998$; root-mean-square error $0.019$--$0.037$ OD$_{600}$
+units). Adding a free lower asymptote did not improve any fit (AIC was higher
+in $9/9$ replicates), so no separate lag parameter was retained.
+
+Growth rate differed strongly among the three strains
+(Fig.~\ref{fig:growth}a). Wild type grew fastest, with
+$r = 0.663$~h$^{-1}$ (mean; 95\% CI $0.648$--$0.678$; $n = 3$; doubling time
+$1.05$~h), followed by the \textit{relA} mutant with
+$r = 0.466$~h$^{-1}$ (95\% CI $0.323$--$0.610$; doubling time $1.49$~h) and
+the \textit{rpoS} mutant with $r = 0.351$~h$^{-1}$ (95\% CI
+$0.308$--$0.394$; doubling time $1.97$~h). Carrying capacity followed the same
+rank order ($K = 1.245$, $1.181$ and $1.033$ OD$_{600}$ for wild type,
+\textit{relA} and \textit{rpoS}, respectively), although the differences in
+$K$ were small relative to those in $r$.
+
+The strain effect on $r$ was significant in a one-way ANOVA
+($F_{2,6} = 60.97$, $P = 1.0\times10^{-4}$, $\eta^{2} = 0.953$); the
+assumptions of normality and equal variances were not violated
+(Shapiro--Wilk $P = 0.084$; Levene $P = 0.238$). All three pairwise contrasts
+were significant in Tukey HSD post-hoc tests with family-wise error control
+(Fig.~\ref{fig:growth}b): wild type versus \textit{relA},
+$+0.196$~h$^{-1}$ ($P = 0.0011$); wild type versus \textit{rpoS},
+$+0.311$~h$^{-1}$ ($P = 8.6\times10^{-5}$); and \textit{relA} versus
+\textit{rpoS}, $+0.115$~h$^{-1}$ ($P = 0.016$). A non-parametric
+Kruskal--Wallis test supported the overall strain effect
+($H_{2} = 7.20$, $P = 0.027$), but with three replicates per strain the
+pairwise non-parametric contrasts have insufficient resolution to reach
+significance, so the pairwise inferences rest on the ANOVA/Tukey analysis,
+whose assumptions this data set satisfies.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\textwidth]{growth.pdf}
+  \caption{Growth of \textit{E.\ coli} wild type and stringent-response
+  mutants. \textbf{a}, OD$_{600}$ growth curves (points, mean $\pm$ s.d. of
+  three biological replicates) with the integrated logistic model
+  $y(t) = K\,[1 + e^{-r(t-t_{i})}]^{-1}$ fitted to each replicate (lines, mean
+  of the three fitted curves). \textbf{b}, Maximum specific growth rate $r$ for
+  each biological replicate (points; square with error bars, mean $\pm$ s.d.,
+  $n = 3$). Significance brackets show Tukey HSD post-hoc comparisons following
+  a significant one-way ANOVA ($F_{2,6} = 60.97$, $P = 1.0\times10^{-4}$):
+  $^{***}P < 0.001$, $^{**}P < 0.01$, $^{*}P < 0.05$. Strains are coloured as
+  in \textbf{a}.}
+  \label{fig:growth}
+\end{figure}
+
+\bibliographystyle{unsrt}
+\bibliography{refs}
+\end{document}

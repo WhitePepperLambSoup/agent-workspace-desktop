@@ -5,6 +5,7 @@ import type { AppInfo, DesktopNotification, UpdateStatus } from './desktop'
 import type { WindowAction, WindowActionResult } from './window'
 import type { AttachmentCapability, AttachmentImportFile } from './attachments'
 export type { AttachmentCapability, AttachmentImportFile } from './attachments'
+import type { PreviewAction, PreviewBounds, PreviewState, PreviewTarget } from './preview'
 import {
   COMMAND_TYPES,
   jsonValueSchema,
@@ -120,6 +121,14 @@ export interface AgentWorkspaceApi {
   isQuitApproved?(): boolean
   /** Absolute path of a dropped file or folder; null when it has none. */
   getPathForFile?(file: File): string | null
+  /** Print an answer (its rendered HTML and the styles it needs) to a PDF in the folder's exports/; the PDF's path. */
+  exportPdf?(request: { html: string; css: string; title: string }): Promise<string | null>
+  /** A Jupyter notebook of the open folder, as text (the reader shows its cells). */
+  readNotebook?(workspaceRelativePath: string): Promise<string | null>
+  /** A PNG or JPEG of the open folder as a data URL at full size (the figure point editor). */
+  readFigure?(workspaceRelativePath: string): Promise<string | null>
+  /** The bytes of a PDF of the open folder (for the LaTeX editor's PDF view); null when absent. */
+  readPdf?(workspaceRelativePath: string): Promise<Uint8Array | null>
   /** A downscaled data URL for an image inside the workspace; null when unavailable. */
   imageThumbnail?(workspacePath: string, relativePath: string): Promise<string | null>
   /** Native save dialog for a session archive; null when cancelled. */
@@ -128,8 +137,23 @@ export interface AgentWorkspaceApi {
   selectSessionArchive?(): Promise<string | null>
   /** Native open dialog for documents of the given types; [] when cancelled. */
   selectKnowledgeFiles?(suffixes: readonly string[]): Promise<readonly string[]>
+  /** The system-wide shortcut that opens the quick actions on the clipboard's text or picture. */
+  configureQuickActions?(settings: { enabled: boolean; accelerator: string }): Promise<{ ok: boolean; error?: 'taken' | 'invalid' }>
+  /** Called when the shortcut was pressed, with the clipboard's text and picture (PNG, base64). */
+  onQuickActions?(listener: (capture: { text: string; image: string | null }) => void): () => void
   /** Desktop host facts and self-update controls; absent outside Electron. */
   desktop?: DesktopHostApi
+  /** The preview panel (web pages, and pages, PDFs and pictures of the open folder). */
+  preview?: PreviewApi
+}
+
+export interface PreviewApi {
+  /** Show a page or a file of the open folder; false when it may not be shown. */
+  open(target: PreviewTarget): Promise<boolean>
+  /** Where the page goes in the window (CSS pixels); null hides it. */
+  setBounds(bounds: PreviewBounds): void
+  act(action: PreviewAction): Promise<boolean>
+  onState(listener: (state: PreviewState) => void): () => void
 }
 
 export interface DesktopHostApi {

@@ -277,6 +277,7 @@ export function LiquidBackdrop({ appearance, createRenderer }: LiquidBackdropPro
                 : appearance.intensity,
               renderedColorMode === 'light' ? 'light' : 'dark',
               appearance.effectiveTransparentDesktop,
+              appearance.effectiveRefraction ? 1 : 0,
             ),
         {
           ...browserControllerOptions,
@@ -324,7 +325,7 @@ export function LiquidBackdrop({ appearance, createRenderer }: LiquidBackdropPro
       canvas.removeEventListener('webglcontextrestored', onContextRestored)
       controller.dispose()
     }
-  }, [animateOptics, appearance.effectiveMode, appearance.intensity, appearance.palette, appearance.effectiveTransparentDesktop, createRenderer, diagnostic, renderedColorMode])
+  }, [animateOptics, appearance.effectiveMode, appearance.effectiveRefraction, appearance.intensity, appearance.palette, appearance.effectiveTransparentDesktop, createRenderer, diagnostic, renderedColorMode])
 
   return (
     <canvas

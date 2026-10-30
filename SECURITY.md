@@ -7,7 +7,7 @@ fixes until the first stable release.
 
 ## Current trust boundary
 
-The `0.1.0-alpha` code provides application-level workspace checks, explicit tool approval, CAS
+The `0.2.0-alpha` code provides application-level workspace checks, explicit tool approval, CAS
 file writes, endpoint validation, local audit events, and a staged sandbox that never changes the
 workspace directly. The staged sandbox is a review boundary, not an operating-system security
 boundary: the commands it runs have the current user's access to files and the network.
@@ -103,13 +103,23 @@ In particular:
   A backup containing an active file checkpoint can only be verified or recovered by the Windows
   user that created it.
   Rolling retention removes older backup pairs that fail deterministic manifest/hash/schema
-  verification; the active database is never modified by this cleanup.
+  verification; the desktop's daily backup checks only each older pair's manifest name, date and
+  size, and every backup is fully verified again before a restore. The active database is never
+  modified by this cleanup.
+- The desktop fully validates the database (integrity, sequences, projection replay) the first
+  time it opens it. A file the app closed cleanly and that has not changed since (same file id,
+  size and modification time, no WAL left) is not replayed again at the next start; SQLite's
+  `quick_check` still runs on every open.
 - The knowledge base keeps the text of the documents the user adds, in plaintext SQLite next to
   the conversations; the original files are not kept. Passages attached to a request are marked as
   untrusted data, so instructions inside a document are not followed as the user's. `knowledge_add`
   copies a workspace file's text and refuses known sensitive paths (keys, `.env`); it is a session
   state change, allowed in WORKSPACE mode and asked for in ASK mode. Saving a web page uses the
   `web_fetch` network checks.
+- Skills are instructions the agent follows, like `AGENTS.md`: the official ones ship with the
+  app, and any folder with a `SKILL.md` file in the user's skills folder is the user's own. Add
+  only skills from a source you trust. `use_skill` reads a skill's text files inside its folder
+  and runs nothing; every tool call a skill leads to goes through the usual approvals.
 - Scanned PDF pages are read with the text recognition built into Windows, through a fixed
   PowerShell script run without a console window; the file and pages to read are passed in an
   environment variable as JSON, never as script text. Nothing leaves the computer.
@@ -119,6 +129,79 @@ In particular:
   self-signed certificate for HTTPS. In HTTP mode tokens and conversation text cross the network
   unencrypted. A phone's task never runs in a YOLO or full-access conversation, and its approvals
   are given on the desktop. The protocol is in `docs/DEVICE_LINK_API.md`.
+- The preview shows web pages and the folder's pages, PDFs and pictures in an embedded page of
+  its own in-memory session: no preload, the renderer sandbox, every permission refused,
+  downloads blocked, and navigation limited to http, https and the file opened. Folder files come
+  from a private `aw-preview` scheme under a random name for each file opened, inside the open
+  folder only, and every response asks for a sandbox without the same origin and sends no
+  referrer: a page runs its scripts and loads its styles and pictures but cannot read the other
+  files of the folder. A page may still load resources from the internet, as it would in a
+  browser.
+- The list of files a turn changed comes from the agent's recorded writes and, when the turn ran a
+  tool that may change files without recording them, from listing the folder (size and
+  modification time, at most 20,000 files and 1.5 seconds) before and after the turn. Undo uses
+  the rewind rules: a file is put back only while it is exactly as the turn left it, and what it
+  replaces is kept in the version store first.
+- Scholarly searches, lookups and reference checks are network requests to OpenAlex, arXiv,
+  PubMed, Crossref and Semantic Scholar, approved like other network tools in ASK and WORKSPACE
+  mode. Zotero is read through its local API on 127.0.0.1, only for an import from it. The
+  library page imports a reference file the user picks in the system's open dialog (BibTeX, RIS
+  and similar text files up to 10 MB); it reads that file and nothing else outside the folder.
+- LaTeX runs the TeX distribution found on the computer with restricted shell escape
+  (`-restrict-write18` or `-shell-restricted`), without a console window, in the document's
+  folder with build files under `.latex-build`. Tectonic, when the user installs it, is a pinned
+  release checked against its SHA-256 before use.
+- The scientific Python environment is installed only when the user asks: uv is a pinned wheel
+  checked against its SHA-256; Python and the packages come from PyPI or a mirror in China and are
+  not pinned by hash (their versions are written to `requirements.lock.txt`). It lives in the
+  app's data folder and changes no other Python. Correcting a figure's points re-runs the script
+  that drew the figure, inside the open folder, after the user saves the correction.
+- `remote_run`, `remote_copy` and `slurm_jobs` run the user's own `ssh` and `scp` with
+  `BatchMode=yes`, so they never ask for or keep a password; each call needs approval outside
+  full-access mode, and they are refused in YOLO mode. A download never overwrites a file of the
+  folder. `remote_hosts` reads the hosts of `~/.ssh/config` (names, addresses, users, ports) and
+  connects to nothing.
+- Saving an answer as PDF prints its rendered text in a hidden window of its own session with
+  JavaScript off and a policy that blocks every network request.
+- The office tools read and write files of the open folder only (protected paths refused); each
+  file written is checkpointed, so the turn's change list can put it back. Converting Word, Excel
+  or PowerPoint files to PDF drives the installed Microsoft Office or WPS through a fixed
+  PowerShell script on a temporary copy (file names in an environment variable, never in script
+  text); an Office program that already has the user's documents open is neither hidden nor
+  closed. Pictures are converted and scanned pages and table screenshots recognized on this
+  computer. E-mail drafts are files the user sends from their own mail program; nothing is sent.
+  Installed PowerPoint templates are read from Office's and the user's template folders.
+- `meeting_transcribe` uploads the recording, in ten-minute parts, to the speech service chosen in
+  Settings → Voice; it is a network tool, approved in ASK and WORKSPACE mode.
+- The quick actions register one system-wide shortcut (Ctrl+Alt+Q unless changed; it can be turned
+  off). The clipboard is read only when it is pressed; its text goes to the model of the current
+  conversation only when the user picks an action, and a table screenshot is recognized locally
+  and saved under the folder's `exports/`.
+- Language servers: Pyright and the TypeScript server are downloaded on first use from the npm
+  registry (npmmirror, then npmjs.org); each package is checked against the registry's SHA-512
+  integrity before it is unpacked into the app's tools folder, and runs on the computer's Node or
+  the app's own Electron in Node mode. Other servers are used only when already installed. They
+  read the folder's files and send nothing out.
+- Project checks run the commands of `.agent/project.json` (or the ones detected) only after the
+  user accepts that folder's list; a changed list asks again. Project rules can refuse writes to
+  protected paths and a commit whose staged changes look like they contain a secret.
+- The terminal panel runs the user's own shells with the user's rights. The agent's
+  `read_terminal` reads what is on screen and cannot type into it.
+- `debug_python` runs the folder's Python program under debugpy, and `run_wsl` runs a command in
+  a WSL distribution in the open folder: both are host processes, approved per call in ASK and
+  WORKSPACE mode and refused in YOLO mode. When the project's Python has no debugpy, it is
+  installed from PyPI into the app's tools folder (not pinned by hash).
+- `check_page` opens a page in a headless browser of its own for each call; it is a network tool,
+  approved like the others, and its screenshot is saved under `.agent/screenshots`.
+- Model features send code to the conversation's provider: Ctrl+K sends the selection and the
+  code around it, the AI review a snapshot's diff, a commit message the diff of the files being
+  committed with the repository's recent commit subjects, and the
+  repository tour the module map with the beginnings of the README and entry points. Inline
+  completion is off until turned on and sends the text around the cursor to DeepSeek only.
+- Pull request checks, failed logs and issues come from the GitHub CLI with the user's own login.
+- A paired phone reads changes and review snapshots with the `read` scope; creating snapshots,
+  comments and follow-ups needs `tasks`, and a follow-up that would run with YOLO or full access
+  needs the phone's confirmation and the `broad_autonomy` scope, as a task does.
 - Installed builds check the HTTPS release feed only when the user asks, and download an update
   only after confirmation. Releases are not code-signed yet; each release lists SHA-256 sums.
 

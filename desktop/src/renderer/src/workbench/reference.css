@@ -162,15 +162,10 @@
     radial-gradient(36% 44% at 12% 96%, rgba(255, 196, 168, .30), transparent 72%),
     var(--canvas-alt);
 }
+/* The field's colours are tuned per palette and colour mode (effects/liquid-shader.ts): broad
+   regions with an edge and contour lines, so the glass has something to bend. */
 .workbench[data-ui-version="reference"] > .liquid-backdrop { z-index: -1; }
-.app-shell[data-material="liquid"] .workbench[data-ui-version="reference"] > .liquid-backdrop {
-  opacity: .9;
-  filter: saturate(1.15);
-}
-.app-shell[data-material="liquid"][data-color-mode="light"] .workbench[data-ui-version="reference"] > .liquid-backdrop {
-  opacity: .22;
-  filter: saturate(.8) brightness(1.4);
-}
+.app-shell[data-material="liquid"] .workbench[data-ui-version="reference"] > .liquid-backdrop { opacity: 1; }
 .app-shell:is([data-material="solid"], [data-material="mica"]) .liquid-backdrop { opacity: 0; }
 
 /* ── Shell geometry ─────────────────────────────────────────────────────── */
@@ -302,6 +297,103 @@
   box-shadow: none;
 }
 .workbench[data-ui-version="reference"] :is(input, textarea)::placeholder { color: var(--text-muted); opacity: .8; }
+
+/* ── Refraction ─────────────────────────────────────────────────────────── */
+
+/* Liquid glass bends its backdrop at the rim (effects/liquid-glass): each surface gets its own
+   SVG filter — a displacement map from Snell's law over a curved bezel, split by colour on
+   floating glass, then saturation — through --lg-filter, after the usual blur, and a rim
+   highlight through --lg-rim. A hairline rim light turns toward the pointer (--lg-a, --lg-ring)
+   and a glare follows it over the surface (--lg-sheen, --lg-mx, --lg-my). Without them (other
+   browsers, a surface too large, the setting off) the frosted glass above stays. */
+.app-shell[data-material="liquid"][data-refraction="true"] .workbench[data-ui-version="reference"] {
+  /* Clearer panes, so the field shows through; the field's colours are chosen against this
+     fill (liquid-shader.ts) so muted text keeps 4.5:1. */
+  --pane-fill: color-mix(in srgb, var(--canvas) 52%, transparent);
+  --lg-bevel: inset 1.5px 1.5px 1px -1px rgb(255 255 255 / .32), inset -1.5px -1.5px 1px -1px rgb(255 255 255 / .18), inset 0 0 22px rgb(255 255 255 / .035);
+  --lg-edge: color-mix(in srgb, var(--pane-border) 55%, transparent);
+  --lg-lift: 0 30px 60px -26px rgb(2 8 24 / .55), 0 8px 22px -10px rgb(2 8 24 / .34);
+  --lg-glare: .07;
+}
+.app-shell[data-material="liquid"][data-refraction="true"][data-color-mode="light"] .workbench[data-ui-version="reference"] {
+  --pane-fill: rgba(255, 255, 255, .76);
+  --lg-bevel: inset 1.5px 1.5px 1px -1px #fff, inset -1.5px -1.5px 1px -1px rgb(16 32 56 / .14), inset 0 0 22px rgb(255 255 255 / .32);
+  --lg-edge: rgb(16 32 56 / .09);
+  --lg-lift: 0 30px 60px -26px rgb(28 48 78 / .32), 0 8px 22px -10px rgb(28 48 78 / .18);
+  --lg-glare: .4;
+  --pane-shadow: 0 14px 34px rgba(28, 48, 78, .14), 0 1px 2px rgba(28, 48, 78, .08);
+}
+.app-shell[data-material="liquid"][data-refraction="true"] .workbench[data-ui-version="reference"] [data-liquid-glass] {
+  --lg-blur: 26px;
+  backdrop-filter: blur(var(--lg-blur)) var(--lg-filter);
+  -webkit-backdrop-filter: blur(var(--lg-blur)) var(--lg-filter);
+}
+.app-shell[data-material="liquid"][data-refraction="true"] .workbench[data-ui-version="reference"] > [data-liquid-glass="pane"] {
+  box-shadow: inset 0 0 0 1px var(--lg-edge), var(--lg-bevel), var(--pane-shadow);
+}
+/* Floating glass and the composer are clear: little blur, a thin fill, so what passes under
+   their rims bends visibly and splits into colour at the very edge. */
+.app-shell[data-material="liquid"][data-refraction="true"] .workbench[data-ui-version="reference"] [data-liquid-glass="float"] {
+  --lg-blur: 4px;
+  --lg-glare: .14;
+  background: linear-gradient(180deg, rgb(255 255 255 / .07), transparent 46%), color-mix(in srgb, var(--pane-fill-strong) 80%, transparent);
+  box-shadow: inset 0 0 0 1px var(--lg-edge), var(--lg-bevel), var(--lg-lift);
+}
+.app-shell[data-material="liquid"][data-refraction="true"] .workbench[data-ui-version="reference"] .composer-shell[data-liquid-glass] {
+  --lg-blur: 6px;
+  --lg-glare: .14;
+  background: linear-gradient(180deg, rgb(255 255 255 / .06), transparent 46%), color-mix(in srgb, var(--composer-fill) 70%, transparent);
+  box-shadow: inset 0 0 0 1px var(--lg-edge), var(--lg-bevel), 0 18px 36px -18px rgb(2 8 24 / .45);
+}
+.app-shell[data-material="liquid"][data-refraction="true"] .workbench[data-ui-version="reference"] .composer-shell[data-liquid-glass]:focus-within {
+  box-shadow: inset 0 0 0 1px var(--focus-ring), 0 0 0 3px color-mix(in srgb, var(--focus-ring) 22%, transparent), var(--lg-bevel), 0 18px 36px -18px rgb(2 8 24 / .45);
+}
+.app-shell[data-material="liquid"][data-refraction="true"][data-color-mode="light"] .workbench[data-ui-version="reference"] [data-liquid-glass]:is([data-liquid-glass="float"], .composer-shell) {
+  --lg-glare: .55;
+}
+/* The approval shelf stacks light fills (its tint, then chips and buttons) over the clearer pane;
+   a ground of the canvas under it keeps their text readable wherever the field is brightest. */
+.app-shell[data-material="liquid"][data-refraction="true"][data-color-mode="dark"] .workbench[data-ui-version="reference"] .conversation-dock > .approval-shelf {
+  background-color: color-mix(in srgb, var(--canvas) 50%, transparent);
+  background-image: linear-gradient(color-mix(in srgb, var(--warning) 9%, var(--composer-fill)), color-mix(in srgb, var(--warning) 9%, var(--composer-fill)));
+}
+/* Rim light: two lobes of a conic gradient, clipped to a hairline ring above the content. */
+.app-shell[data-material="liquid"][data-refraction="true"] .workbench[data-ui-version="reference"] [data-liquid-glass]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  padding: 1.2px;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: var(--lg-ring, .42);
+  background: conic-gradient(from var(--lg-a, 315deg),
+    rgb(255 255 255 / .92) 0deg, rgb(255 255 255 / .32) 28deg, rgb(255 255 255 / .03) 84deg,
+    rgb(255 255 255 / .05) 150deg, rgb(255 255 255 / .5) 180deg, rgb(255 255 255 / .05) 210deg,
+    rgb(255 255 255 / .03) 276deg, rgb(255 255 255 / .32) 332deg, rgb(255 255 255 / .92) 360deg);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+}
+/* The rim map and the glare sit over the fill and under the content. */
+.app-shell[data-material="liquid"][data-refraction="true"] .workbench[data-ui-version="reference"] [data-liquid-glass]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(260px circle at var(--lg-mx, 50%) var(--lg-my, 0%), rgb(255 255 255 / calc(var(--lg-glare) * var(--lg-sheen, 0))), transparent 70%),
+    var(--lg-rim) 0 0 / 100% 100% no-repeat;
+}
+.liquid-glass-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
 
 /* ── Title bar ──────────────────────────────────────────────────────────── */
 

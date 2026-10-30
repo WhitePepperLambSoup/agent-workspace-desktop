@@ -1,0 +1,45 @@
+/* A LaTeX file open: the file tree and the editor over the whole window, below the title bar. */
+.workbench[data-testid="workbench"] > .workspace-editor-layout.latex-expanded-layer {
+  position: fixed;
+  inset: calc(var(--title-height, 44px) + 6px) 8px 8px 8px;
+  z-index: 15;
+  height: auto;
+  min-height: 0;
+  grid-template-columns: minmax(180px, 230px) minmax(0, 1fr);
+  gap: 0;
+  /* Opaque: the reading colour is slightly see-through on some materials. */
+  background: linear-gradient(var(--reading), var(--reading)), var(--canvas);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, .35);
+}
+
+.latex-new {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.latex-new-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.latex-new-form label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+}
+
+.latex-new-form select,
+.latex-new-form input {
+  font: inherit;
+  color: var(--text);
+  background: var(--input);
+  border: 1px solid var(--divider);
+  border-radius: 6px;
+  padding: 3px 6px;
+}

@@ -1,23 +1,32 @@
 import type { Locale } from '../locales'
-import { enUS } from './en-US'
-import { jaJP } from './ja-JP'
 import { zhCN, type MessageCatalog, type MessageKey } from './zh-CN'
-import { zhTW } from './zh-TW'
 
-export { enUS, jaJP, zhCN, zhTW }
+export { zhCN }
 export type { MessageCatalog, MessageKey }
 
 export type TranslationVariables = Record<string, string | number>
 
-const messages: Record<Locale, MessageCatalog> = {
-  'zh-CN': zhCN,
-  'zh-TW': zhTW,
-  'en-US': enUS,
-  'ja-JP': jaJP,
+// Only Simplified Chinese ships in the first bundle; it is also what shows while another
+// language loads. The others load when chosen (loadMessages).
+const messages: Partial<Record<Locale, MessageCatalog>> = { 'zh-CN': zhCN }
+
+const catalogLoaders: Record<Locale, () => Promise<MessageCatalog>> = {
+  'zh-CN': async () => zhCN,
+  'zh-TW': async () => (await import('./zh-TW')).zhTW,
+  'en-US': async () => (await import('./en-US')).enUS,
+  'ja-JP': async () => (await import('./ja-JP')).jaJP,
+}
+
+export function hasMessages(locale: Locale): boolean {
+  return messages[locale] !== undefined
+}
+
+export async function loadMessages(locale: Locale): Promise<void> {
+  messages[locale] ??= await catalogLoaders[locale]()
 }
 
 export function translate(locale: Locale, key: MessageKey, variables?: TranslationVariables): string {
-  const message = messages[locale][key]
+  const message = (messages[locale] ?? zhCN)[key]
 
   if (!variables) return message
 
@@ -42,6 +51,7 @@ const BUILTIN_TEXT_KEYS = {
   Workspace: 'workbench.workspace',
   Knowledge: 'workbench.knowledge',
   'Scheduled tasks': 'workbench.schedules',
+  'Studio': 'studio.title',
   Projects: 'workbench.projects',
   Search: 'workbench.search',
   Changes: 'workbench.changes',
@@ -357,6 +367,15 @@ const BUILTIN_TEXT_KEYS = {
   'GitHub created no readable pull request URL.': 'review.prUrlMissingError',
   'GitHub returned an unreadable pull request response.': 'review.githubResponseError',
   'A pull request already exists for this snapshot. Refresh its status.': 'review.prExistsError',
+  'AI review': 'review.ai',
+  'Reviewing…': 'review.aiBusy',
+  'The model found no problems in this change.': 'review.aiNone',
+  'Model comments added: {count}.': 'review.aiFound',
+  'Model comments added: {count}. {skipped} could not be placed on the diff.': 'review.aiFoundSkipped',
+  'The model took too long to review. Try again or review a smaller change.': 'review.aiTimeout',
+  'The model could not review this change. Check the model in Settings.': 'review.aiFailed',
+  'The model answered in a form that could not be read. Try again.': 'review.aiUnreadable',
+  'Add a model in Settings first.': 'review.aiNoProvider',
   Operations: 'operations.title',
   'Runtime operations': 'operations.runtime',
   'Inspect durable work, schedules, collaboration, persistent terminals and replayable evidence from one place.': 'operations.description',

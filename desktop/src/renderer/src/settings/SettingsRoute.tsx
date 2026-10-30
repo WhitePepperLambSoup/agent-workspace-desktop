@@ -9,10 +9,15 @@ import { AutonomySettings } from './AutonomySettings'
 import { LanguageSettings } from './LanguageSettings'
 import { NotificationSettings } from './NotificationSettings'
 import { VoiceSettings } from './VoiceSettings'
+import { QuickActionSettings } from './QuickActionSettings'
+import { TeamSettings } from './TeamSettings'
 import { ShortcutSettings } from './ShortcutSettings'
 import { ProviderRuntimeSettings } from './ProviderRuntimeSettings'
 import { PromptOptimizationSettings } from './PromptOptimizationSettings'
 import { SystemDoctorSettings } from './SystemDoctorSettings'
+import { ScienceSettings } from './ScienceSettings'
+import { SkillSettings } from './SkillSettings'
+import { CodeSettings } from './CodeSettings'
 import { TaskLimitSettings } from './TaskLimitSettings'
 import { UsageSettings } from './UsageSettings'
 import { DeviceLinkSettings } from './DeviceLinkSettings'
@@ -80,11 +85,16 @@ function SettingsRouteView({ state, client, appearance, nativeStatus, onAppearan
         <ProviderRuntimeSettings state={state} client={client} i18n={i18n} />
       {typeof client?.getUsageBill === 'function' ? <UsageSettings client={client} i18n={i18n} /> : null}
       {client ? <TaskLimitSettings client={client} i18n={i18n} /> : null}
+        <TeamSettings i18n={i18n} />
+      {typeof client?.listSkills === 'function' ? <SkillSettings client={client} i18n={i18n} /> : null}
+      {typeof client?.codeServers === 'function' ? <CodeSettings client={client} i18n={i18n} /> : null}
+      {typeof client?.scienceStatus === 'function' ? <ScienceSettings client={client} i18n={i18n} /> : null}
       {client ? <DeviceLinkSettings client={client} i18n={i18n} /> : null}
         <PromptOptimizationSettings state={state} client={client} i18n={i18n} />
         <SystemDoctorSettings client={client} i18n={i18n} />
         <NotificationSettings available={Boolean(desktopHost)} i18n={i18n} />
         {client ? <VoiceSettings client={client} i18n={i18n} /> : null}
+        <QuickActionSettings i18n={i18n} />
         <ShortcutSettings i18n={i18n} />
         <AboutSettings host={desktopHost} i18n={i18n} collectDiagnostics={collectDiagnostics} />
         {appearance && onAppearanceChange ? (

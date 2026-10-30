@@ -43,8 +43,9 @@ uv run agent-workspace sessions search "provider compatibility" --workspace . --
 
 ## Backups, restore and session archives
 
-The app makes a verified backup of its database each time it closes. Backups can also be made,
-checked and restored by hand, and one session can be exported as a ZIP archive:
+The app makes a verified backup of its database once a day, in the background a minute after it
+starts (or later in the day, while it stays open). Backups can also be made, checked and restored
+by hand, and one session can be exported as a ZIP archive:
 
 ```powershell
 $backup = uv run agent-workspace backups create --keep 10 --max-age-days 30
@@ -55,8 +56,10 @@ uv run agent-workspace sessions verify .\session.zip
 uv run agent-workspace sessions import .\session.zip --workspace .
 ```
 
-Each database keeps at most 10 verified backups for 30 days and 10 GiB by default. A backup is a
-`.db` file plus the `.manifest.json` beside it; keep both and do not rename them. Restore never
+Each database keeps at most 10 verified backups for 30 days and 10 GiB by default. The app's daily
+backup drops older copies by their manifests, without checking each one again, and removes the
+temporary file of a backup that was stopped part way. A backup is a `.db` file plus the
+`.manifest.json` beside it; keep both and do not rename them. Restore never
 overwrites an existing database and migrates known older schemas on the restored copy.
 
 A session archive holds the transcript, Todos, research sources and citations and their text

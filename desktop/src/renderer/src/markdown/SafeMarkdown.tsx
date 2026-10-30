@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import rehypeSanitize from 'rehype-sanitize'
 import remarkGfm from 'remark-gfm'
 
-import { classifyExternalUrl, resolveResourceImage, type ResourceCapability } from './resource-policy'
+import { classifyExternalUrl, classifyWorkspaceLink, resolveResourceImage, type ResourceCapability } from './resource-policy'
 import { HighlightedCode } from './HighlightedCode'
 import { useOptionalI18n } from '../i18n/I18nProvider'
 
@@ -39,6 +39,8 @@ interface SafeMarkdownProps {
   source: string
   resources?: readonly ResourceCapability[]
   onOpenExternal?: (url: string) => void
+  /** A link to a file of the open folder (paper.pdf#page=5). */
+  onOpenFile?: (path: string, page?: number) => void
   streaming?: boolean
 }
 
@@ -51,7 +53,7 @@ const schema = {
   },
 }
 
-export const SafeMarkdown = memo(function SafeMarkdown({ source, resources = [], onOpenExternal, streaming = false }: SafeMarkdownProps) {
+export const SafeMarkdown = memo(function SafeMarkdown({ source, resources = [], onOpenExternal, onOpenFile, streaming = false }: SafeMarkdownProps) {
   const { t } = useOptionalI18n()
   const capabilities = useMemo(() => [...resources], [resources])
   const visibleSource = useMemo(() => source.slice(0, 500_000), [source])
@@ -75,7 +77,12 @@ export const SafeMarkdown = memo(function SafeMarkdown({ source, resources = [],
           },
           a: ({ href, children }) => {
             const url = classifyExternalUrl(href)
-            if (!url) return <span>{children}</span>
+            if (!url) {
+              const file = onOpenFile ? classifyWorkspaceLink(href) : null
+              if (!file || !onOpenFile) return <span>{children}</span>
+              const label = file.page ? t('markdown.openFilePage', { path: file.path, page: file.page }) : t('markdown.openFile', { path: file.path })
+              return <button type="button" className="markdown-link" aria-label={label} title={label} onClick={() => onOpenFile(file.path, file.page)}>{children}</button>
+            }
             const openLabel = t('markdown.openLink', { label: url.label })
             return <button type="button" className="markdown-link" aria-label={openLabel} title={onOpenExternal ? openLabel : t('markdown.externalUnavailable')} disabled={!onOpenExternal} onClick={() => onOpenExternal?.(url.href)}>{children}</button>
           },

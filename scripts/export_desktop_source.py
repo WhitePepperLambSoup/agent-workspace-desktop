@@ -54,6 +54,7 @@ _TREES = (
     "desktop/src",
     "desktop/resources",
     "desktop/scripts",
+    "desktop/skills",
     "docs",
     "contracts",
     "bench",

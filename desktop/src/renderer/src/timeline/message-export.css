@@ -1,0 +1,41 @@
+.message-export {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.message-export-menu {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  min-width: 120px;
+  padding: 4px;
+  border: 1px solid var(--divider);
+  border-radius: 8px;
+  background: var(--reading);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .2);
+}
+
+.message-export-menu > button {
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+}
+
+.message-export-menu > button:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.message-export-note {
+  color: var(--text-muted);
+  font-size: 11px;
+}

@@ -13,6 +13,7 @@ import {
   LazySchedulesRoute,
   LazySearchRoute,
   LazySettingsRoute,
+  LazyStudioRoute,
   LazyWorkspaceRoute,
 } from './lazy-routes'
 
@@ -29,8 +30,17 @@ export function RouteLoading() {
 
 type OpenSession = (workspace: string, sessionId: string) => void
 
-function RouteBody({ route, state, client, onOpenSession }: { route: ActivityRoute; state: WorkbenchState; client?: WorkbenchBridgeClient; onOpenSession?: OpenSession }) {
+interface RouteActions {
+  onOpenSession?: OpenSession
+  /** Open an agent run on the Agent runs page. */
+  onOpenRun?: (runId: string) => void
+  /** Back to the conversation. */
+  onOpenAgent?: () => void
+}
+
+function RouteBody({ route, state, client, onOpenSession, onOpenRun, onOpenAgent }: { route: ActivityRoute; state: WorkbenchState; client?: WorkbenchBridgeClient } & RouteActions) {
   if (route === 'agent') return <AgentRoute />
+  if (route === 'studio') return <LazyStudioRoute state={state} onOpenRun={onOpenRun} onOpenAgent={onOpenAgent} onOpenSession={onOpenSession} />
   if (route === 'runs') return <LazyRunControlCenter state={state} client={client} />
   if (route === 'workspace') return <LazyWorkspaceRoute state={state} client={client} />
   if (route === 'knowledge') return <LazyKnowledgeRoute client={client} />
@@ -42,6 +52,6 @@ function RouteBody({ route, state, client, onOpenSession }: { route: ActivityRou
   return <LazySettingsRoute state={state} />
 }
 
-export function RouteOutlet({ route, state, store: _store, client, onOpenSession }: { route: ActivityRoute; state: WorkbenchState; store: WorkbenchStore; client?: WorkbenchBridgeClient; onOpenSession?: OpenSession }) {
-  return <Suspense fallback={<RouteLoading />}><RouteBody route={route} state={state} client={client} onOpenSession={onOpenSession} /></Suspense>
+export function RouteOutlet({ route, state, store: _store, client, ...actions }: { route: ActivityRoute; state: WorkbenchState; store: WorkbenchStore; client?: WorkbenchBridgeClient } & RouteActions) {
+  return <Suspense fallback={<RouteLoading />}><RouteBody route={route} state={state} client={client} {...actions} /></Suspense>
 }

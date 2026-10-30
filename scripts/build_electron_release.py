@@ -151,6 +151,7 @@ def _assert_safe_bundle(bundle: Path) -> None:
         "THIRD_PARTY_NOTICES.md",
         "resources/app.asar",
         "resources/sidecar/agent-workspace-ui-gateway.exe",
+        "resources/skills/official/skill-pack.json",
     }
     available = {_relative(path, bundle) for path in _files(bundle)}
     missing = sorted(required - available)
@@ -331,10 +332,11 @@ def _compute_sidecar_source_digest() -> str:
 
 def _compute_desktop_source_digest() -> str:
     digest = hashlib.sha256()
-    source_root = DESKTOP_ROOT / "src"
-    sources = (
-        [path for path in source_root.rglob("*") if path.is_file()] if source_root.is_dir() else []
-    )
+    sources: list[Path] = []
+    # The window's code and the skills that ship with the app (resources/skills).
+    for source_root in (DESKTOP_ROOT / "src", DESKTOP_ROOT / "skills"):
+        if source_root.is_dir():
+            sources.extend(path for path in source_root.rglob("*") if path.is_file())
     sources.extend(
         DESKTOP_ROOT / name
         for name in ("package.json", "package-lock.json", "electron.vite.config.ts")
@@ -589,6 +591,10 @@ def _freeze_sidecar(output: Path, source_digest: str | None = None) -> Path:
             str(work_root / "spec"),
             "--exclude-module",
             "PySide6",
+            # The figure helpers are copied into the scientific environment, never imported here.
+            "--add-data",
+            f"{PROJECT_ROOT / 'src' / 'agent_workspace' / 'science' / 'aw_sciplot'}"
+            f"{os.pathsep}agent_workspace/science/aw_sciplot",
             "--name",
             output.stem,
             "--distpath",

@@ -21,12 +21,15 @@ export interface AppearanceState {
   reduceMotion: boolean
   highContrast: boolean
   transparentDesktop: boolean
+  /** Liquid glass bends the backdrop at the rims of panes and dialogs; absent means on. */
+  refraction?: boolean
 }
 
 export interface ResolvedAppearance extends AppearanceState {
   effectiveMode: AppearanceMode
   effectiveTransparentDesktop: boolean
   animateOptics: boolean
+  effectiveRefraction: boolean
 }
 
 export const DEFAULT_APPEARANCE: AppearanceState = Object.freeze({
@@ -52,5 +55,9 @@ export function resolveAppearance(input: Partial<AppearanceState> = {}): Resolve
     effectiveTransparentDesktop,
     animateOptics:
       effectiveMode === 'liquid' && !appearance.reduceMotion && !appearance.highContrast,
+    // Over a see-through window the backdrop is the desktop, which the page cannot bend.
+    effectiveRefraction:
+      effectiveMode === 'liquid' && appearance.refraction !== false && !appearance.highContrast
+      && !effectiveTransparentDesktop,
   }
 }

@@ -4,6 +4,149 @@ All notable changes to the desktop app are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+## [0.2.0-alpha.1] - 2026-10-30
+
+### Added
+
+- An expert team: a turn can go to a team that the agent leads. It picks the specialists a
+  request needs from a library of 73 experts in 15 fields (or the user fixes the team), gives
+  each a part, has the draft reviewed when the answer carries figures or a consequential
+  decision, and answers from the findings that hold up. Each expert works with its field's tools
+  for at most 12 minutes a round; experts who write code run their tests in the sandbox and use
+  the language server, the project's checks and the debugger.
+- The studio: a 3D office where the lead and the experts of a team turn work at desks, boards and
+  tables as they read, compute and review; several teams at work show as floors of one building.
+- A code editor: syntax colouring, the language server's errors, hover and go to definition.
+  Ctrl+K rewrites the selection from an instruction and shows the change before it is kept;
+  inline completion from DeepSeek can be turned on.
+- Language servers: Pyright and the TypeScript server are installed on first use; rust-analyzer,
+  gopls and clangd are used when installed. The agent finds definitions, references and symbols
+  through them and sees a file's errors after each edit.
+- Project checks and rules: tests, type check and lint, detected or set in `.agent/project.json`
+  and accepted once per folder, run after a turn that changed files, and a failure can go back to
+  the agent. Rules format files after a write, protect paths and refuse a commit whose staged
+  changes look like they contain a secret.
+- Changes: undo or comment on one hunk, a review by the model as comments on the lines, and a
+  comment handed to the agent as a task.
+- A terminal panel under the workspace (Ctrl+\`): PowerShell, cmd, Git Bash, each WSL
+  distribution and the SSH hosts of `~/.ssh/config`. The agent reads what is on screen and runs
+  Linux commands in WSL.
+- A Git tab: branches, commit messages written from the diff, committing on a new branch from the
+  default one, conflicts, pull request checks with their failed logs, and issues as tasks (GitHub
+  CLI).
+- Specs: requirements, design and a task list, each approved in turn before the agent builds.
+- Page check: the agent opens a page in a hidden browser, clicks through steps, and gets the
+  console errors, failed requests and a screenshot it can see.
+- A Python debugger: breakpoints in the editor, the call stack, variables and stepping (debugpy,
+  installed on first use). The agent can stop at a line and read the variables.
+- A repository tour: a map of the modules and their imports, and an overview of the architecture
+  written from the code.
+- Phone connection: a paired phone can read the folder's changes, freeze them into a review,
+  comment on lines and hand a comment to the agent (`code_review`; the Android app does not use it
+  yet).
+
+- Science and papers. The agent searches OpenAlex, arXiv, PubMed, Crossref and Semantic Scholar,
+  keeps a reference library per folder (Zotero, BibTeX, RIS, EndNote and NoteExpress imports),
+  exports BibTeX or a formatted reference list (GB/T 7714, APA, IEEE, Vancouver, Nature), checks
+  reference lists against the databases, and reads PDF papers by outline, page and reference
+  list, linking the pages it quotes. A named watch reports only new papers, for the new "New
+  papers" scheduled task.
+- A LaTeX editor: `.tex` and `.bib` files open beside their PDF, compiled with MiKTeX, TeX Live or
+  Tectonic (installed on request), with errors explained and fixed in one click, a checker for
+  common mistakes, SyncTeX jumps both ways, citing from the library, and starters for Chinese and
+  English papers, reports and slides. The agent compiles and checks documents too. It builds on
+  TeXButler.
+- A scientific Python environment, installed on request (uv, Python 3.12, numpy, pandas, scipy,
+  matplotlib, seaborn, statsmodels, scikit-learn, Jupyter tools), with figure helpers from
+  Quick SciPlot: journal-sized styles, statistics, figure templates and journal checks. Points of
+  a figure can be dragged to correct its data; the corrected copy and a list of the changes are
+  saved and the figure is redrawn.
+- Visual editing of `.tex` files, from TeXButler 1.0.0: the document as a page, edited like in
+  Word (paragraph styles, bold and the like, lists, formulas with a live preview, figures with
+  their pictures, tables cell by cell, citations and cross-references, footnotes, the
+  preamble). Untouched blocks are written back byte for byte, and a file that would not survive
+  the round trip opens in source mode only. Figure and table captions show their numbers.
+- A reference library page (Workspace → References): browse the folder's works, add from the
+  databases or Zotero, import BibTeX, RIS, EndNote, NoteExpress or CSL-JSON files, copy a
+  formatted list, save BibTeX or RIS, check works against the databases, remove works.
+- Notebooks (`.ipynb`) open with their cells and outputs.
+- A lab notebook: dated entries in `lab-notebook/YYYY-MM.md`, written and searched by the agent.
+- Servers: the agent runs commands, copies files and submits or checks Slurm jobs on the hosts of
+  the SSH configuration (key login only; each call is approved).
+- Answers save as PDF (formulas as shown), Word or Markdown in the folder's `exports/`.
+- Six research skills: literature reviews, reading papers, writing LaTeX papers, figures and
+  statistics, answering reviewers, and formulas from pictures to LaTeX.
+- Skills: thirteen official skills that come with the app, adapted from the Android app's pack
+  (contracts, long documents, tables, accounts, meeting minutes, polishing and translating,
+  résumés, work reports, study cards, trips, meals, bill splitting and scam checks). The agent
+  sees their names and uses and loads one with the new `use_skill` tool when a request needs it.
+  Settings → Skills turns each one on or off, and folders with a `SKILL.md` file copied into the
+  skills folder add the user's own.
+- Each answer ends with the files its turn created, edited, moved or deleted. A file opens in the
+  app, an edited text file shows what changed, and the agent's changes can be undone one file at
+  a time or all together. Files changed by commands the agent ran are listed apart. The list stays
+  with the conversation.
+- A preview inside the app for web pages and for pages, PDFs and pictures in the open folder.
+  Links in answers open there (with a button for the browser); the Files page and files a phone
+  sent use it too. Other text files open in a reader with line numbers, Markdown rendered.
+- Office work. The agent writes official documents laid out to GB/T 9704 (通知, 请示, 报告, 函,
+  纪要), checks and fixes the layout of existing ones, and proofreads Chinese text. It edits Word
+  files as tracked changes with comments, compares two versions into a redline and a report, fills
+  a Word template from a table (one file per row or one combined, also as PDF), and translates
+  Word, PowerPoint and Excel files keeping their layout, replaced or side by side. Workbooks get
+  real formulas, number formats, conditional formatting and native charts; tables are merged,
+  matched on key columns, compared with highlights or cut into payslips; e-invoices (XML, OFD,
+  PDF) are summed, checked and de-duplicated. PDFs are merged, split, picked, rotated, numbered,
+  watermarked, compressed, made from pictures or Office files, and scanned pages get a hidden
+  text layer by Windows text recognition. Slide decks are built on the user's PowerPoint template
+  or one installed with Office, with native charts and speaker notes, and crowded slides are
+  flagged. E-mail files (.eml, Outlook .msg) are read, replies drafted as unsent messages and
+  invitations written as .ics. Meeting recordings are transcribed with times through the speech
+  service of Settings → Voice. Every file written can be undone from the turn's change list.
+- Document templates: official documents, forms, letters, reports and workbooks, plus the user's
+  own Word, Excel and PowerPoint files with `{{fields}}`, from the Files page (New from template)
+  or by the agent.
+- Quick actions: copy text or a table screenshot anywhere and press Ctrl+Alt+Q (changeable in
+  Settings): the window comes forward to polish, translate, summarize, rewrite in the official
+  tone or answer the text, or to turn the table into a workbook.
+- Five office skills (official documents, Chinese proofreading, e-mail and invitations, tables,
+  slide decks); the slide-deck skill follows the planning method of PPT Master. The translation,
+  minutes and expense skills use the new tools.
+- Liquid glass refracts: panes, the composer and floating dialogs bend what is behind their rims
+  (Snell's law over a curved bezel, after the liquid-glass library) and catch a rim highlight;
+  light mode shows a bevel and more of the colour field. Settings → Appearance → Refraction turns
+  it off.
+- The liquid background is a slowly drifting field of broad colour regions with contour lines,
+  so the glass has something to bend; its colours are chosen per palette so that muted text on
+  the panes keeps 4.5:1 wherever the field drifts. Panes are clearer in dark mode, dialogs and the
+  composer are nearly clear glass whose rims split into colour, and a hairline rim light with a
+  soft glare follows the pointer over the composer and dialogs.
+
+### Fixed
+
+- Some commands the app starts in the background, such as the firewall check and stopping a
+  task's processes, could wait until the next action in the window, because they inherited the
+  input of the app's background process. They now start with an empty input.
+- Database backups piled up: they were made while the app closed, where neither the copy nor the
+  removal of older copies had time to finish. The app now backs up once a day in the background,
+  keeps the last ten and removes the copies and temporary files left by earlier versions.
+- The diagnostic trace wrote the whole conversation again for every model request, which slowed
+  each step of a long task and filled hundreds of megabytes. It now writes the messages a request
+  adds, and keeps two weeks and at most 100 MB of traces.
+- While a prompt was being improved or a recording turned into text, the app read no other
+  command and showed no progress of running tasks, so Stop and approvals waited too. These now run
+  beside other work, as does the Git diff of the changes view.
+
+### Changed
+
+- Starting the app no longer replays the whole conversation history to check the database when
+  the app closed it cleanly last time and the file has not changed since (about two seconds on a
+  database of a few months).
+- The window loads only the chosen language's text at start (its first script is 28% smaller), and
+  checks what the sidecar sends once instead of three times.
+
 ## [0.1.0-alpha.1] - 2026-10-27
 
 The first public preview of the Windows desktop app.

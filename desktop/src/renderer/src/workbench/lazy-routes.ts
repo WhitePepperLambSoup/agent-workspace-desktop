@@ -5,6 +5,8 @@ import { lazy, type LazyExoticComponent } from 'react'
 const loaders = {
   settings: () => import('../settings/SettingsRoute').then((module) => ({ default: module.SettingsRoute })),
   runs: () => import('../runs/RunControlCenter').then((module) => ({ default: module.RunControlCenter })),
+  // The route alone; its three.js scene loads when the studio opens.
+  studio: () => import('../studio/StudioRoute').then((module) => ({ default: module.StudioRoute })),
   workspace: () => import('../workspace/WorkspaceRoute').then((module) => ({ default: module.WorkspaceRoute })),
   knowledge: () => import('../knowledge/KnowledgeRoute').then((module) => ({ default: module.KnowledgeRoute })),
   schedules: () => import('../schedules/SchedulesRoute').then((module) => ({ default: module.SchedulesRoute })),
@@ -45,6 +47,7 @@ function preloadable<K extends RouteKey>(key: K): LazyExoticComponent<RouteModul
 
 export const LazySettingsRoute = preloadable('settings')
 export const LazyRunControlCenter = preloadable('runs')
+export const LazyStudioRoute = preloadable('studio')
 export const LazyWorkspaceRoute = preloadable('workspace')
 export const LazyKnowledgeRoute = preloadable('knowledge')
 export const LazySchedulesRoute = preloadable('schedules')

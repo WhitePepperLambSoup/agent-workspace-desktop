@@ -1,0 +1,168 @@
+.figure-editor-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  background: rgba(4, 7, 11, .45);
+}
+
+.figure-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(1100px, calc(100vw - 48px));
+  height: min(820px, calc(100vh - 48px));
+  padding: 10px 12px;
+  border: 1px solid var(--divider);
+  border-radius: 10px;
+  background: linear-gradient(var(--reading), var(--reading)), var(--canvas);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .4);
+  font-size: 12px;
+  outline: none;
+}
+
+.figure-editor-header,
+.figure-editor-footer,
+.figure-editor-exact {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.figure-editor-spacer {
+  flex: 1;
+}
+
+.figure-editor-lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+}
+
+.figure-editor-lock select,
+.figure-editor-footer input,
+.figure-editor-exact input {
+  font: inherit;
+  color: var(--text);
+  background: var(--input);
+  border: 1px solid var(--divider);
+  border-radius: 6px;
+  padding: 3px 6px;
+}
+
+.figure-editor-footer input {
+  flex: 1;
+  min-width: 0;
+}
+
+.figure-editor-exact label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+}
+
+.figure-editor-exact input {
+  width: 120px;
+}
+
+.figure-editor-hint,
+.figure-editor-notice {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.figure-editor-stage {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.figure-editor-canvas {
+  position: relative;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.figure-editor-canvas img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(min(820px, 100vh - 48px) - 150px);
+  user-select: none;
+}
+
+.figure-editor-canvas svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.figure-editor-handle {
+  fill: rgba(37, 99, 235, .25);
+  stroke: #2563eb;
+  stroke-width: 2;
+  cursor: grab;
+}
+
+.figure-editor-handle.moved {
+  fill: rgba(234, 88, 12, .35);
+  stroke: #ea580c;
+}
+
+.figure-editor-handle.selected {
+  stroke: #dc2626;
+  stroke-width: 3;
+}
+
+.figure-editor-handle.missing {
+  fill: none;
+  stroke: #dc2626;
+  stroke-dasharray: 3 2;
+}
+
+.figure-editor-trail {
+  stroke: #ea580c;
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
+
+.figure-editor-band {
+  fill: rgba(37, 99, 235, .08);
+  stroke: #2563eb;
+  stroke-dasharray: 4 3;
+}
+
+.science-packages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 4px 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.science-packages small,
+.science-path,
+.science-detail {
+  color: var(--text-muted);
+}
+
+.science-path {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.figure-spin {
+  animation: spin 1s linear infinite;
+}

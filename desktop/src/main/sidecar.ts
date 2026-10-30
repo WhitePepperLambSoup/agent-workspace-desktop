@@ -94,7 +94,59 @@ const EXPECTED_RESPONSE_TYPES: Record<
   'session.usage': 'session.usage.result',
   'limits.get': 'limits.get.result',
   'limits.set': 'limits.set.result',
+  'skills.list': 'skills.list.result',
+  'skills.set': 'skills.set.result',
+  'skills.folder.open': 'skills.folder.open.result',
   'cost.estimate': 'cost.estimate.result',
+  'code.servers': 'code.servers.result',
+  'code.servers.install': 'code.servers.install.result',
+  'code.diagnostics': 'code.diagnostics.result',
+  'code.definition': 'code.definition.result',
+  'code.hover': 'code.hover.result',
+  'project.get': 'project.get.result',
+  'project.set': 'project.set.result',
+  'project.trust': 'project.trust.result',
+  'project.checks.run': 'project.checks.run.result',
+  'editor.rewrite': 'editor.rewrite.result',
+  'workspace.review.ai': 'workspace.review.ai.result',
+  'editor.complete': 'editor.complete.result',
+  'shell.list': 'shell.list.result',
+  'shell.start': 'shell.start.result',
+  'shell.input': 'shell.input.result',
+  'shell.resize': 'shell.resize.result',
+  'shell.stop': 'shell.stop.result',
+  'shell.close': 'shell.close.result',
+  'shell.replay': 'shell.replay.result',
+  'git.status': 'git.status.result',
+  'git.branch.create': 'git.branch.create.result',
+  'git.branch.switch': 'git.branch.switch.result',
+  'git.message': 'git.message.result',
+  'git.conflict.take': 'git.conflict.take.result',
+  'git.conflict.resolved': 'git.conflict.resolved.result',
+  'git.finish': 'git.finish.result',
+  'git.ci.runs': 'git.ci.runs.result',
+  'git.ci.log': 'git.ci.log.result',
+  'git.issues': 'git.issues.result',
+  'git.issue': 'git.issue.result',
+  'spec.list': 'spec.list.result',
+  'spec.create': 'spec.create.result',
+  'spec.get': 'spec.get.result',
+  'spec.approve': 'spec.approve.result',
+  'spec.reopen': 'spec.reopen.result',
+  'spec.prompt': 'spec.prompt.result',
+  'debug.status': 'debug.status.result',
+  'debug.install': 'debug.install.result',
+  'debug.start': 'debug.start.result',
+  'debug.control': 'debug.control.result',
+  'debug.stack': 'debug.stack.result',
+  'debug.scopes': 'debug.scopes.result',
+  'debug.variables': 'debug.variables.result',
+  'debug.evaluate': 'debug.evaluate.result',
+  'debug.breakpoints': 'debug.breakpoints.result',
+  'debug.stop': 'debug.stop.result',
+  'tour.map': 'tour.map.result',
+  'tour.get': 'tour.get.result',
+  'tour.write': 'tour.write.result',
   'devices.status': 'devices.status.result',
   'devices.configure': 'devices.configure.result',
   'devices.pairing.start': 'devices.pairing.start.result',
@@ -131,6 +183,9 @@ const EXPECTED_RESPONSE_TYPES: Record<
   'knowledge.watch.remove': 'knowledge.watch.remove.result',
   'knowledge.watch.scan': 'knowledge.watch.scan.result',
   'session.rewind': 'session.rewind.result',
+  'turn.files.diff': 'turn.files.diff.result',
+  'turn.files.undo': 'turn.files.undo.result',
+  'turn.files.hunk.undo': 'turn.files.hunk.undo.result',
   'memory.list': 'memory.list.result',
   'memory.update': 'memory.update.result',
   'memory.delete': 'memory.delete.result',
@@ -221,6 +276,37 @@ const EXPECTED_RESPONSE_TYPES: Record<
   'workspace.review.pr.create': 'workspace.review.pr.create.result',
   'workspace.review.pr.refresh': 'workspace.review.pr.refresh.result',
   'system.doctor': 'system.doctor.result',
+  'latex.status': 'latex.status.result',
+  'latex.settings.set': 'latex.settings.set.result',
+  'latex.compile': 'latex.compile.result',
+  'latex.cancel': 'latex.cancel.result',
+  'latex.check': 'latex.check.result',
+  'latex.fix': 'latex.fix.result',
+  'latex.synctex': 'latex.synctex.result',
+  'latex.engine.install': 'latex.engine.install.result',
+  'latex.template.create': 'latex.template.create.result',
+  'references.list': 'references.list.result',
+  'references.search': 'references.search.result',
+  'references.zotero': 'references.zotero.result',
+  'references.add': 'references.add.result',
+  'references.cite': 'references.cite.result',
+  'references.remove': 'references.remove.result',
+  'references.import': 'references.import.result',
+  'references.export': 'references.export.result',
+  'references.check': 'references.check.result',
+  'science.status': 'science.status.result',
+  'science.install': 'science.install.result',
+  'science.cancel': 'science.cancel.result',
+  'science.remove': 'science.remove.result',
+  'figures.points': 'figures.points.result',
+  'figures.correct': 'figures.correct.result',
+  'answer.export': 'answer.export.result',
+  'speech.set': 'speech.set.result',
+  'templates.list': 'templates.list.result',
+  'templates.create': 'templates.create.result',
+  'templates.folder.open': 'templates.folder.open.result',
+  'quick.run': 'quick.run.result',
+  'quick.table': 'quick.table.result',
 }
 
 const DEFAULT_MAX_INFLIGHT_REQUESTS = 64
@@ -420,7 +506,36 @@ export class SidecarClient {
     if (commandType === 'workspace.review.pr.create') return 660_000
     if (commandType === 'workspace.review.pr.refresh') return 60_000
     if (commandType === 'workspace.review.create') return 120_000
+    // The sidecar gives the model four minutes to review a change.
+    if (commandType === 'workspace.review.ai') return 300_000
+    // The first list asks WSL for its distributions (up to eight seconds).
+    if (commandType === 'shell.list' || commandType === 'shell.start') return 30_000
+    // gh gets 90 s for a failed log; the model 90 s for a commit message.
+    if (commandType === 'git.ci.log' || commandType === 'git.message' || commandType === 'git.finish') return 120_000
+    if (commandType.startsWith('git.')) return 60_000
+    // pip downloads debugpy (up to five minutes); the debugger starts in seconds.
+    if (commandType === 'debug.install') return 360_000
+    // The sidecar gives the model three minutes for the tour.
+    if (commandType === 'tour.write') return 200_000
+    if (commandType === 'tour.map') return 60_000
+    if (commandType.startsWith('debug.')) return 60_000
     if (commandType === 'system.doctor') return 30_000
+    // The sidecar stops a compile after ten minutes; Tectonic's download may take longer.
+    if (commandType === 'latex.compile') return 660_000
+    if (commandType === 'latex.engine.install') return 1_800_000
+    // A few minutes over a slow line; the installer stops a step after half an hour.
+    if (commandType === 'science.install') return 3_600_000
+    if (commandType === 'figures.correct') return 420_000
+    // Downloading a language server (about 20 MB) over a slow line.
+    if (commandType === 'code.servers.install') return 600_000
+    // A project's tests: each check stops after its own timeout (an hour at most).
+    if (commandType === 'project.checks.run') return 3_700_000
+    // The sidecar waits up to 40 s for a language server starting on a large project.
+    if (commandType === 'code.diagnostics' || commandType === 'code.definition' || commandType === 'code.hover') return 60_000
+    // Up to 150 works, four at a time, each up to two lookups of 20 s.
+    if (commandType === 'references.check') return 600_000
+    // The sidecar gives a model two minutes, and text recognition as long.
+    if (commandType === 'quick.run' || commandType === 'quick.table' || commandType === 'editor.rewrite') return 150_000
     return this.requestTimeoutMs
   }
 

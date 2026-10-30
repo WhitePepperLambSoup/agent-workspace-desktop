@@ -141,6 +141,23 @@ function AppearanceSettingsView({
 
       <div className="settings-row compact-setting">
         <div className="setting-label">
+          <strong>{t('settings.appearance.refraction')}</strong>
+          <span>{t('settings.appearance.refractionDescription')}</span>
+        </div>
+        <label className="toggle-control">
+          <input
+            type="checkbox"
+            aria-label={t('settings.appearance.refraction')}
+            checked={appearance.refraction !== false}
+            disabled={appearance.mode !== 'liquid' || appearance.highContrast}
+            onChange={(event) => update({ refraction: event.target.checked })}
+          />
+          <span aria-hidden="true" />
+        </label>
+      </div>
+
+      <div className="settings-row compact-setting">
+        <div className="setting-label">
           <strong>{t('settings.appearance.reduceMotion')}</strong>
           <span>{t('settings.appearance.reduceMotionDescription')}</span>
         </div>

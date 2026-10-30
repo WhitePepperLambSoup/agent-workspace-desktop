@@ -27,7 +27,8 @@ function loadAppearance(): AppearanceState {
       typeof candidate.intensity !== 'number' ||
       typeof candidate.reduceMotion !== 'boolean' ||
       typeof candidate.highContrast !== 'boolean' ||
-      (candidate.transparentDesktop !== undefined && typeof candidate.transparentDesktop !== 'boolean')
+      (candidate.transparentDesktop !== undefined && typeof candidate.transparentDesktop !== 'boolean') ||
+      (candidate.refraction !== undefined && typeof candidate.refraction !== 'boolean')
     ) {
       return DEFAULT_APPEARANCE
     }
@@ -40,6 +41,7 @@ function loadAppearance(): AppearanceState {
       reduceMotion: resolved.reduceMotion,
       highContrast: resolved.highContrast,
       transparentDesktop: resolved.transparentDesktop ?? false,
+      ...(resolved.refraction === false ? { refraction: false } : {}),
     }
   } catch {
     return DEFAULT_APPEARANCE
@@ -103,6 +105,7 @@ export function App({ client, registry }: { client?: WorkbenchBridgeClient; regi
       reduceMotion: next.reduceMotion,
       highContrast: next.highContrast,
       transparentDesktop: next.transparentDesktop,
+      ...(next.refraction === false ? { refraction: false } : {}),
     }
     setAppearance(stored)
     try {
@@ -122,6 +125,7 @@ export function App({ client, registry }: { client?: WorkbenchBridgeClient; regi
       data-high-contrast={appearance.highContrast ? 'true' : 'false'}
       data-reduced-motion={appearance.reduceMotion ? 'true' : 'false'}
       data-desktop-transparent={resolved.effectiveTransparentDesktop ? 'true' : 'false'}
+      data-refraction={resolved.effectiveRefraction ? 'true' : 'false'}
       style={{ '--appearance-intensity': appearance.intensity } as React.CSSProperties}
     >
       <Workbench

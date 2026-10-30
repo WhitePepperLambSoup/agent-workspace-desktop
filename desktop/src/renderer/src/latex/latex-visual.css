@@ -1,0 +1,864 @@
+/* The visual editor: a page of paper with typeset-looking content (from TeXButler 1.0.0). */
+.latex-mode {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--divider);
+  border-radius: 7px;
+  background: var(--input);
+}
+
+.latex-mode > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.latex-mode > button[aria-selected="true"] {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.vis-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.vis-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  min-height: 36px;
+  padding: 0 8px;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--divider);
+}
+
+.vis-tool {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.vis-tool:hover {
+  background: var(--accent-soft);
+}
+
+.vis-tool[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.vis-divider {
+  width: 1px;
+  height: 14px;
+  margin: 0 5px;
+  background: var(--divider);
+}
+
+.vis-style {
+  min-width: 128px;
+  height: 26px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--input);
+  border: 1px solid var(--divider);
+  border-radius: 6px;
+}
+
+.vis-minus {
+  opacity: .55;
+}
+
+.vis-menu-anchor {
+  position: relative;
+}
+
+.vis-pick,
+.vis-grid {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  padding: 6px;
+  border: 1px solid var(--divider);
+  border-radius: 8px;
+  background: var(--reading);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .18);
+  font-size: 12px;
+}
+
+.vis-pick {
+  width: 340px;
+}
+
+.vis-pick-filter {
+  width: 100%;
+  margin-bottom: 6px;
+  padding: 4px 8px;
+  font: inherit;
+  color: var(--text);
+  background: var(--input);
+  border: 1px solid var(--divider);
+  border-radius: 6px;
+}
+
+.vis-pick-list {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.vis-pick-list > button {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.vis-pick-list > button:hover {
+  background: var(--accent-soft);
+}
+
+.vis-pick-list > button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.vis-pick-empty {
+  margin: 4px 6px;
+  color: var(--text-muted);
+}
+
+.vis-grid {
+  display: grid;
+  gap: 6px;
+  color: var(--text-muted);
+}
+
+.vis-grid-cells {
+  display: grid;
+  grid-template-columns: repeat(8, 18px);
+  gap: 3px;
+}
+
+.vis-grid-cell {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--divider);
+  border-radius: 3px;
+  background: var(--input);
+  cursor: pointer;
+}
+
+.vis-grid-cell.on {
+  background: var(--accent);
+}
+
+.vis-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px 20px 56px;
+}
+
+.vis-paper {
+  max-width: 820px;
+  min-height: 100%;
+  margin: 0 auto;
+  padding: 40px 60px 64px;
+  border-radius: 6px;
+  background: #fff;
+  color: #1d1d1f;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .12), 0 8px 28px rgba(0, 0, 0, .08);
+  font-family: "Latin Modern Roman", "CMU Serif", "Times New Roman", "Source Han Serif SC", "Songti SC", SimSun, serif;
+  font-size: 16px;
+  line-height: 1.7;
+}
+
+[data-color-mode="dark"] .vis-paper {
+  background: var(--reading);
+  color: var(--text);
+  box-shadow: 0 0 0 1px var(--divider), 0 8px 28px rgba(0, 0, 0, .4);
+}
+
+.vis-preamble {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -18px -32px 22px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--input);
+  color: var(--text-muted);
+  font-family: var(--font-ui, system-ui, sans-serif);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.vis-preamble-label {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.vis-preamble code {
+  color: var(--accent);
+}
+
+.vis-preamble-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vis-preamble-edit {
+  margin-left: auto;
+}
+
+.vis-doc {
+  outline: none;
+  min-height: 300px;
+}
+
+.vis-doc p {
+  margin: 0 0 .75em;
+  text-align: justify;
+}
+
+.vis-paper[data-cjk] .vis-doc p {
+  text-indent: 2em;
+}
+
+.vis-doc li p,
+.vis-doc td p {
+  text-indent: 0;
+}
+
+.vis-doc .vis-h {
+  margin: 1.2em 0 .55em;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.vis-doc .vis-chapter,
+.vis-doc .vis-part {
+  font-size: 1.75em;
+  margin-top: .6em;
+}
+
+.vis-doc .vis-section {
+  font-size: 1.38em;
+}
+
+.vis-doc .vis-subsection {
+  font-size: 1.17em;
+}
+
+.vis-doc .vis-subsubsection {
+  font-size: 1.04em;
+}
+
+.vis-doc .vis-paragraph,
+.vis-doc .vis-subparagraph {
+  font-size: 1em;
+  display: block;
+}
+
+/* Numbers come from the numbering plugin (data-num): counters restyled the page at every key. */
+.vis-doc .vis-h[data-num]::before {
+  content: attr(data-num) "\2003";
+}
+
+.vis-doc .vis-chapter[data-num]::before {
+  content: "Chapter " attr(data-num) "\2003";
+}
+
+.vis-paper[data-cjk] .vis-doc .vis-chapter[data-num]::before {
+  content: "第 " attr(data-num) " 章\2003";
+}
+
+/* Blocks out of view skip layout and paint, so long documents stay fast. */
+.vis-doc > * {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 3em;
+}
+
+.vis-h-label {
+  margin-left: 10px;
+  vertical-align: middle;
+}
+
+.vis-h-label.empty {
+  opacity: 0;
+}
+
+.vis-doc .vis-h:hover .vis-h-label.empty {
+  opacity: .45;
+}
+
+.vis-doc ul,
+.vis-doc ol {
+  margin: 0 0 .75em;
+  padding-left: 1.8em;
+}
+
+.vis-doc li > p {
+  margin-bottom: .2em;
+}
+
+.vis-atom,
+.vis-math {
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.vis-math:hover,
+.vis-atom:hover,
+.vis-selected {
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.vis-cite,
+.vis-ref {
+  color: #1a5fb4;
+  font-family: var(--font-ui, system-ui, sans-serif);
+  font-size: .86em;
+}
+
+[data-color-mode="dark"] .vis-cite,
+[data-color-mode="dark"] .vis-ref,
+[data-color-mode="dark"] .vis-url {
+  color: var(--accent);
+}
+
+.vis-label {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--input);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 17px;
+  text-indent: 0;
+  vertical-align: middle;
+}
+
+.vis-footnote {
+  color: var(--accent);
+  font-size: .75em;
+  vertical-align: super;
+  font-weight: 700;
+}
+
+.vis-url {
+  color: #1a5fb4;
+  text-decoration: underline;
+}
+
+.vis-comment {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: .78em;
+}
+
+.vis-code {
+  padding: 0 4px;
+  background: var(--input);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: .82em;
+}
+
+.vis-quiet {
+  color: var(--faint);
+  font-family: var(--font-ui, system-ui, sans-serif);
+  font-size: .75em;
+}
+
+.vis-doc code {
+  font-family: var(--font-mono);
+  font-size: .9em;
+}
+
+.vis-math-display {
+  position: relative;
+  margin: .8em 0;
+  padding: 4px 48px;
+  border-radius: 6px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.vis-math-display[data-num]::after {
+  content: "(" attr(data-num) ")";
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.vis-math-display > .vis-label {
+  position: absolute;
+  left: 6px;
+  top: 4px;
+}
+
+.vis-math-display:hover {
+  background: var(--accent-soft);
+}
+
+.vis-math-body {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.vis-figure {
+  margin: 1.2em 0;
+  text-align: center;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.vis-figure:hover {
+  background: var(--accent-soft);
+}
+
+.vis-fig-img {
+  display: inline-block;
+  max-width: 100%;
+}
+
+.vis-fig-img img,
+.vis-fig-img canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 2px;
+  background: #fff;
+}
+
+.vis-fig-missing {
+  padding: 28px 12px;
+  border: 1px dashed var(--divider);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-family: var(--font-ui, system-ui, sans-serif);
+  font-size: 12px;
+}
+
+.vis-figure figcaption,
+.vis-table-caption {
+  margin-top: 6px;
+  font-size: .92em;
+}
+
+.vis-fig-num[data-num]::before {
+  content: "Figure " attr(data-num) ": ";
+  font-weight: 600;
+}
+
+.vis-paper[data-cjk] .vis-fig-num[data-num]::before {
+  content: "图 " attr(data-num) "\3000";
+}
+
+.vis-table {
+  margin: 1.2em 0;
+}
+
+.vis-table-caption {
+  margin: 0 0 6px;
+  text-align: center;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.vis-table.caption-below .vis-table-caption {
+  margin: 6px 0 0;
+}
+
+.vis-table-caption:hover {
+  background: var(--accent-soft);
+}
+
+.vis-tab-num[data-num]::before {
+  content: "Table " attr(data-num) ": ";
+  font-weight: 600;
+}
+
+.vis-paper[data-cjk] .vis-tab-num[data-num]::before {
+  content: "表 " attr(data-num) "\3000";
+}
+
+.vis-table table {
+  margin: 0 auto;
+  border-collapse: collapse;
+  min-width: 40%;
+}
+
+.vis-table td,
+.vis-table th {
+  min-width: 48px;
+  padding: 3px 12px;
+  border: 1px solid transparent;
+  vertical-align: top;
+  text-indent: 0;
+}
+
+.vis-table:not(.rules-booktabs):not(.rules-hline) td {
+  border-color: var(--divider);
+}
+
+.vis-table.rules-booktabs tbody tr:first-child td,
+.vis-table.rules-hline tbody tr:first-child td {
+  border-top: 1.6px solid currentColor;
+}
+
+.vis-table.rules-booktabs tbody tr:last-child td,
+.vis-table.rules-hline tbody tr:last-child td {
+  border-bottom: 1.6px solid currentColor;
+}
+
+.vis-table.has-header tbody tr:first-child td {
+  border-bottom: .8px solid currentColor;
+}
+
+.vis-table td.selectedCell {
+  background: var(--accent-soft);
+}
+
+.vis-env {
+  position: relative;
+  margin: 1em 0;
+  padding: 10px 14px 4px;
+  border-left: 3px solid var(--divider);
+  border-radius: 0 6px 6px 0;
+  background: color-mix(in srgb, var(--input) 60%, transparent);
+}
+
+.vis-env-tab {
+  margin-bottom: 4px;
+  color: var(--text-muted);
+  font-family: var(--font-ui, system-ui, sans-serif);
+  font-size: 11px;
+  font-weight: 700;
+  user-select: none;
+}
+
+.vis-env-abstract {
+  margin: 1em 2.5em;
+  border-left: 0;
+  background: transparent;
+  font-size: .94em;
+}
+
+.vis-env-abstract .vis-env-tab {
+  text-align: center;
+  font-family: inherit;
+  font-size: 1em;
+  color: inherit;
+}
+
+.vis-env-center .vis-env-body p {
+  text-align: center;
+  text-indent: 0;
+}
+
+.vis-env-theorem,
+.vis-env-lemma,
+.vis-env-corollary,
+.vis-env-proposition,
+.vis-env-definition {
+  border-left-color: var(--accent);
+}
+
+.vis-raw {
+  margin: .8em 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--input);
+  box-shadow: inset 0 0 0 1px var(--divider);
+  cursor: pointer;
+  font-family: var(--font-ui, system-ui, sans-serif);
+}
+
+.vis-raw:hover,
+.vis-raw.vis-selected {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+.vis-raw-label {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.vis-raw-code,
+.vis-raw-comment {
+  margin: 4px 0 0;
+  max-height: 260px;
+  overflow: auto;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.vis-raw-comment {
+  margin: 0;
+  color: var(--faint);
+}
+
+.vis-raw.vis-raw-comment {
+  padding: 2px 10px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.vis-raw-marker,
+.vis-raw-input {
+  text-align: center;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--divider);
+}
+
+.vis-input-link {
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.vis-raw-pagebreak {
+  position: relative;
+  padding: 0;
+  height: 18px;
+  background: transparent;
+  box-shadow: none;
+  text-align: center;
+}
+
+.vis-raw-pagebreak::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  border-top: 1px dashed var(--divider);
+}
+
+.vis-raw-pagebreak span {
+  position: relative;
+  padding: 0 10px;
+  background: inherit;
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.vis-raw-maketitle {
+  padding: 16px 12px 22px;
+  background: transparent;
+  box-shadow: none;
+  text-align: center;
+  font-family: inherit;
+}
+
+.vis-title {
+  font-size: 1.7em;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.vis-author {
+  margin-top: 10px;
+  font-size: 1.05em;
+}
+
+.vis-date {
+  margin-top: 6px;
+  font-size: .95em;
+}
+
+.vis-flash {
+  animation: vis-flash 1.6s ease-out;
+}
+
+@keyframes vis-flash {
+  0%,
+  40% {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+
+  100% {
+    background: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vis-flash {
+    animation: none;
+    outline: 2px solid var(--accent);
+  }
+}
+
+@container latex (max-width: 640px) {
+  .vis-scroll {
+    padding: 12px 10px 48px;
+  }
+
+  .vis-paper {
+    padding: 26px 20px 52px;
+  }
+
+  .vis-preamble {
+    margin: -14px -10px 18px;
+  }
+
+  .vis-doc p {
+    text-align: left;
+  }
+}
+
+.vis-unsupported {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 100%;
+  padding: 32px;
+  color: var(--text-muted);
+  text-align: center;
+  line-height: 1.6;
+}
+
+.vis-unsupported strong {
+  color: var(--text);
+  font-size: 15px;
+}
+
+.vis-popover {
+  position: fixed;
+  z-index: 1200;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(460px, calc(100vw - 16px));
+  padding: 12px;
+  border: 1px solid var(--divider);
+  border-radius: 12px;
+  background: var(--reading);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .24);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.vis-popover-title {
+  font-weight: 700;
+}
+
+.vis-popover-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+
+.vis-popover-input {
+  width: 100%;
+  min-height: 28px;
+  padding: 5px 9px;
+  border: 1px solid var(--divider);
+  border-radius: 6px;
+  background: var(--input);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  resize: vertical;
+}
+
+.vis-popover-input.mono {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.vis-popover-input:focus {
+  outline: 2px solid var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.vis-popover-preview {
+  min-height: 24px;
+  max-height: 200px;
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--input);
+  text-align: center;
+}
+
+.vis-popover-preview:empty {
+  display: none;
+}
+
+.vis-popover-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.vis-popover-actions .btn {
+  padding: 4px 12px;
+  border: 1px solid var(--divider);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.vis-popover-actions .btn-primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.vis-popover-actions .btn-danger {
+  color: var(--danger);
+}

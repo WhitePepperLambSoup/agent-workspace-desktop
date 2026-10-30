@@ -40,7 +40,32 @@ export type NoticeEntry = {
   compareModel?: string
 }
 
-export type TimelineEntry = MessageEntry | ToolEntry | DiffEntry | NoticeEntry
+/** One file in the list a turn ends with. */
+export interface TurnFile {
+  path: string
+  change: 'created' | 'modified' | 'deleted' | 'moved'
+  /** The agent wrote, moved or deleted it; 'other' changed while the turn ran a command. */
+  by: 'agent' | 'other'
+  to?: string
+  bytes?: number
+  /** One of the agent's recorded writes, which can be put back. */
+  undoable?: boolean
+}
+
+/** The files a turn changed, under its answer (``turn.files.changed``). */
+export type FilesEntry = {
+  id: string
+  type: 'files'
+  files: readonly TurnFile[]
+  /** Changed files beyond the list. */
+  omitted: number
+  /** Whether the folder could be listed, so changes made by commands are included. */
+  listed: boolean
+  /** Files put back since (``turn.files.undone``). */
+  undone: readonly string[]
+}
+
+export type TimelineEntry = MessageEntry | ToolEntry | DiffEntry | NoticeEntry | FilesEntry
 
 export interface ApprovalItem {
   requestId: string

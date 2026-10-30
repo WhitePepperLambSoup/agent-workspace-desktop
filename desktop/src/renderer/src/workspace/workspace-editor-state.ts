@@ -85,6 +85,8 @@ export class WorkspaceEditorStore {
   private readonly workspaces = new Map<string, WorkspaceEditorState>()
   private readonly listeners = new Set<() => void>()
   private readonly pendingWrites = new Set<string>()
+  /** Files saved again while a write was on its way: written once more when it is done. */
+  private readonly writeAgain = new Set<string>()
   private nextInstanceId = 1
   private nextFilesRequestId = 1
 
@@ -132,6 +134,11 @@ export class WorkspaceEditorStore {
   beginWrite(workspacePath: string, filePath: string): WorkspaceEditorTab | null {
     const tab = this.get(workspacePath).tabs.find((item) => item.path === filePath)
     const key = `${workspacePath}\0${filePath}`
+    if (tab?.dirty && (tab.saving || this.pendingWrites.has(key))) {
+      // Saved again before the last save came back: the newer text is written after it.
+      this.writeAgain.add(key)
+      return null
+    }
     if (!tab || !tab.dirty || tab.saving || this.pendingWrites.has(key)
       || tab.editable === false || tab.truncated || tab.isBinary) return null
     this.pendingWrites.add(key)
@@ -143,8 +150,11 @@ export class WorkspaceEditorStore {
     return tab
   }
 
-  finishWrite(workspacePath: string, filePath: string, tab: WorkspaceEditorTab, sha256?: string): void {
-    this.pendingWrites.delete(`${workspacePath}\0${filePath}`)
+  /** True when the file was saved again meanwhile and should be written once more. */
+  finishWrite(workspacePath: string, filePath: string, tab: WorkspaceEditorTab, sha256?: string): boolean {
+    const key = `${workspacePath}\0${filePath}`
+    this.pendingWrites.delete(key)
+    const again = this.writeAgain.delete(key) && sha256 !== undefined
     this.update(workspacePath, (current) => ({
       ...current,
       saveFailed: sha256 === undefined,
@@ -160,6 +170,7 @@ export class WorkspaceEditorStore {
         }
       }),
     }), sha256 !== undefined)
+    return again
   }
 
   hasUnprotectedDrafts(): boolean {

@@ -1,5 +1,6 @@
 import {
   Activity,
+  Armchair,
   BookOpen,
   Bot,
   CalendarClock,
@@ -40,6 +41,7 @@ import { ComposerDraftStore, composerDraftScope } from '../state/composer-drafts
 import type { AppearanceState } from '../design/appearance'
 import { resolveAppearance } from '../design/appearance'
 import { LiquidBackdrop } from '../effects/LiquidBackdrop'
+import { LiquidGlassSurfaces } from '../effects/liquid-glass/LiquidGlassSurfaces'
 import { GatewayCommandError, type WorkbenchBridgeClient } from '../bridge/client'
 import { CommandPalette } from '../commands/CommandPalette'
 import { createContributionRegistry, type ContributionRegistry } from '../extensions/registry'
@@ -64,11 +66,12 @@ import { requestRunFocus } from '../runs/focus-run'
 import { CompareModelDialog, ComparisonSheet, comparisonFrom } from '../timeline/CompareDialogs'
 import { ConversationTimeline } from '../timeline/ConversationTimeline'
 import type { NoticeActions } from '../timeline/NoticeRow'
-import type { ApprovalItem, NoticeEntry, TimelineEntry } from '../timeline/types'
-import { parseUserAttachmentReferences } from '../timeline/user-attachments'
+import type { ApprovalItem, NoticeEntry, TimelineEntry, TurnFile } from '../timeline/types'
+import { CHECKS_MARKER, parseUserAttachmentReferences, SPEC_MARKER } from '../timeline/user-attachments'
 import { TimelineWorkspaceContext } from '../timeline/workspace-context'
 import { activityVisible, readInterfaceMode, writeInterfaceMode, type InterfaceMode } from './interface-mode'
 import { DOCUMENT_PREVIEW_EVENT, type DocumentPreviewRequest } from '../office/preview-request'
+import { OPEN_IN_EDITOR_EVENT, PREVIEW_EVENT, requestPreview, type PreviewRequest } from '../preview/preview-request'
 import { RouteLoading, RouteOutlet, type ActivityRoute } from './RouteOutlet'
 import { LazySettingsRoute, preloadRoutes } from './lazy-routes'
 import { confirmAutonomyChange } from '../settings/autonomy'
@@ -76,10 +79,11 @@ import { SessionSidebar } from '../workspace/SessionSidebar'
 import { droppedFolderPath } from '../workspace/folder-drop'
 import { useAttentionNotifications } from '../notifications/attention'
 import { useVoicePreference } from '../voice/voice'
+import { QuickActions } from '../office/QuickActions'
 import { shortcutFromEvent, useShortcuts } from '../shortcuts/keymap'
 import { useDrawerController } from './useDrawerController'
 
-type ActivityId = 'agent' | 'runs' | 'workspace' | 'knowledge' | 'schedules' | 'search' | 'changes' | 'jobs' | 'operations' | 'settings'
+type ActivityId = 'agent' | 'studio' | 'runs' | 'workspace' | 'knowledge' | 'schedules' | 'search' | 'changes' | 'jobs' | 'operations' | 'settings'
 type Autonomy = 'ask' | 'workspace' | 'yolo' | 'full_access'
 
 interface WorkbenchProps {
@@ -94,6 +98,8 @@ interface WorkbenchProps {
 const fallbackStore = createWorkbenchStore()
 // The Office preview loads when a file is first previewed.
 const OfficePreviewDialog = lazy(() => import('../office/OfficePreview').then((module) => ({ default: module.OfficePreviewDialog })))
+// So does the preview of pages, files and changes.
+const PreviewSheet = lazy(() => import('../preview/PreviewSheet').then((module) => ({ default: module.PreviewSheet })))
 function useRuntimeState(client: WorkbenchProps['client']): WorkbenchState {
   return useSyncExternalStore(
     (listener) => (client?.store ?? fallbackStore).subscribe(() => listener()),
@@ -118,9 +124,50 @@ function providerVisionState(provider: Record<string, JsonValue> | null): boolea
   return providerId === 'deepseek' && (model.includes('flash') || model.includes('v4.1')) ? true : null
 }
 
+const TURN_FILE_CHANGES = new Set(['created', 'modified', 'deleted', 'moved'])
+
+function turnFiles(value: JsonValue | undefined): TurnFile[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item): TurnFile[] => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return []
+    const { path, change, by, to, bytes, undoable } = item as Record<string, JsonValue>
+    if (typeof path !== 'string' || typeof change !== 'string' || !TURN_FILE_CHANGES.has(change)) return []
+    return [{
+      path,
+      change: change as TurnFile['change'],
+      by: by === 'agent' ? 'agent' : 'other',
+      ...(typeof to === 'string' ? { to } : {}),
+      ...(typeof bytes === 'number' ? { bytes } : {}),
+      ...(undoable === true && by === 'agent' ? { undoable: true } : {}),
+    }]
+  })
+}
+
 function timelineEntries(timeline: WorkbenchState['timeline'], tx: (text: string) => string): TimelineEntry[] {
   const entries: TimelineEntry[] = []
+  // Files put back since a turn, by its change list.
+  const undone = new Map<string, string[]>()
+  for (const item of timeline) {
+    if (item.type !== 'turn.files.undone') continue
+    const listId = stringFact(item.data.changesEventId, '')
+    const paths = Array.isArray(item.data.paths) ? item.data.paths.filter((path): path is string => typeof path === 'string') : []
+    if (listId) undone.set(listId, [...(undone.get(listId) ?? []), ...paths])
+  }
   for (const item of filterCanonicalStreams(timeline)) {
+    if (item.type === 'turn.files.changed') {
+      const files = turnFiles(item.data.files)
+      if (files.length > 0) {
+        entries.push({
+          id: item.id,
+          type: 'files',
+          files,
+          omitted: typeof item.data.omitted === 'number' ? item.data.omitted : 0,
+          listed: item.data.listed === true,
+          undone: undone.get(item.id) ?? [],
+        })
+      }
+      continue
+    }
     if (item.type.startsWith('tool.')) {
       entries.push({
         id: item.id,
@@ -220,6 +267,7 @@ const ACTIVITIES: readonly {
   icon: typeof Bot
 }[] = [
   { id: 'agent', label: 'Agent', icon: Bot },
+  { id: 'studio', label: 'Studio', icon: Armchair },
   { id: 'runs', label: 'Agent runs', icon: Workflow },
   { id: 'workspace', label: 'Workspace', icon: Files },
   { id: 'knowledge', label: 'Knowledge', icon: BookOpen },
@@ -237,6 +285,7 @@ const REFERENCE_RAIL_ACTIVITIES: readonly {
   icon: typeof Bot
 }[] = [
   { id: 'agent', label: 'Agent', icon: MessageSquare },
+  { id: 'studio', label: 'Studio', icon: Armchair },
   { id: 'runs', label: 'Agent runs', icon: Workflow },
   { id: 'workspace', label: 'Workspace', icon: Folder },
   { id: 'knowledge', label: 'Knowledge', icon: BookOpen },
@@ -580,15 +629,24 @@ function ConversationSurface({
   const attachmentScopeRef = useRef('')
   const entries = useMemo(() => timelineEntries(state.timeline, tx), [state.timeline, tx])
   const approvals = approvalEntries(state, tx)
-  const timelineActions = useMemo<TimelineActions>(() => client && typeof client.undoFileBatch === 'function'
-    ? {
-        undoFileBatch: async (batchId) => {
-          const outcome = parseUndo((await client.undoFileBatch(batchId)).payload)
-          if (!outcome) throw new Error('undo_unavailable')
-          return outcome
-        },
-      }
-    : {}, [client])
+  const timelineSessionId = typeof state.selectedSession?.id === 'string' ? state.selectedSession.id : null
+  const timelineActions = useMemo<TimelineActions>(() => ({
+    ...(client && typeof client.undoFileBatch === 'function' ? {
+      undoFileBatch: async (batchId: string) => {
+        const outcome = parseUndo((await client.undoFileBatch(batchId)).payload)
+        if (!outcome) throw new Error('undo_unavailable')
+        return outcome
+      },
+    } : {}),
+    ...(client && typeof client.undoTurnFiles === 'function' && timelineSessionId ? {
+      sessionId: timelineSessionId,
+      undoTurnFiles: async (eventId: string, paths: readonly string[] | null) => {
+        const response = await client.undoTurnFiles(timelineSessionId, eventId, paths, true)
+        if (response.type !== 'turn.files.undo.result') throw new Error('undo_unavailable')
+        return rewindFilesFrom(response.payload).map((file) => ({ path: file.path, reason: file.reason }))
+      },
+    } : {}),
+  }), [client, timelineSessionId])
   const subagentSessionId = typeof state.selectedSession?.id === 'string' ? state.selectedSession.id : null
   const phoneJobs = useMemo(
     () => Object.values(state.phoneJobs ?? {}).filter((item) => item.sessionId === subagentSessionId),
@@ -628,8 +686,16 @@ function ConversationSurface({
     : null
   attachmentScopeRef.current = attachmentScope
   const voice = useVoicePreference()
+  const sidecarEpoch = state.runtime.epoch
+  // The agent's meeting transcription uses the speech service chosen in Settings → Voice; each
+  // sidecar is told the choice when it starts and when it changes.
+  useEffect(() => {
+    if (!client || sidecarEpoch === null || typeof client.setSpeech !== 'function') return
+    void client.setSpeech(voice.providerId, voice.model).catch(() => undefined)
+  }, [client, sidecarEpoch, voice.providerId, voice.model])
   const promptHistory = useMemo(() => entries.flatMap((entry) => {
     if (entry.type !== 'message' || entry.role !== 'user' || entry.open) return []
+    if (entry.text.startsWith(CHECKS_MARKER) || entry.text.startsWith(SPEC_MARKER)) return []  // sent by the app, not typed
     const body = parseUserAttachmentReferences(entry.text).body.trim()
     return body ? [body] : []
   }).slice(-50), [entries])
@@ -680,6 +746,11 @@ function ConversationSurface({
   }, [attachmentScope])
 
   const openExternal = useCallback((url: string): void => {
+    // A link opens in the preview panel; the panel has a button for the browser.
+    if (window.agentWorkspace?.preview) {
+      requestPreview({ kind: 'url', url })
+      return
+    }
     if (!externalOpener) return
     const requestedScope = attachmentScope
     setActionError(null)
@@ -957,6 +1028,7 @@ function ConversationSurface({
             requestRunFocus(runId)
             onNavigate?.('runs')
           }}
+          onWatch={routeVisible && !routeVisible('studio') ? undefined : () => onNavigate?.('studio')}
         />
         <PhoneJobStrip jobs={phoneJobs} />
         {phoneSend.ui}
@@ -1042,6 +1114,18 @@ function ConversationSurface({
             }
             const effort = command.payload.reasoningEffort
             const knownEffort = effort === 'off' || effort === 'low' || effort === 'medium' || effort === 'high' || effort === 'xhigh' || effort === 'max'
+            const team = command.payload.team
+            if (team === 'auto') {
+              return client.startTurn(prompt, attachmentIds, [], knownEffort ? effort : undefined, command.sessionId, undefined, false,
+                { members: 'auto', review: command.payload.teamReview !== false })
+            }
+            if (Array.isArray(team) && team.length > 0) {
+              const members = team.flatMap((item) => item && typeof item === 'object' && !Array.isArray(item)
+                && typeof item.id === 'string' && typeof item.name === 'string'
+                ? [{ id: item.id, name: item.name, ...(typeof item.brief === 'string' ? { brief: item.brief } : {}) }] : [])
+              return client.startTurn(prompt, attachmentIds, [], knownEffort ? effort : undefined, command.sessionId, undefined, false,
+                { members, review: command.payload.teamReview !== false })
+            }
             if (command.payload.planFirst === true) {
               return client.startTurn(prompt, attachmentIds, [], knownEffort ? effort : undefined, command.sessionId, undefined, true)
             }
@@ -1133,6 +1217,21 @@ export function Workbench({ appearance, nativeStatus, onAppearanceChange, client
     }
     window.addEventListener(DOCUMENT_PREVIEW_EVENT, show)
     return () => window.removeEventListener(DOCUMENT_PREVIEW_EVENT, show)
+  }, [])
+  const [preview, setPreview] = useState<PreviewRequest | null>(null)
+  useEffect(() => {
+    const show = (event: Event) => {
+      const detail = (event as CustomEvent<PreviewRequest>).detail
+      if (detail && (detail.kind === 'url' || detail.kind === 'file')) setPreview(detail)
+    }
+    // The Files page opens the file it was asked for when it shows.
+    const edit = () => setActivity('workspace')
+    window.addEventListener(PREVIEW_EVENT, show)
+    window.addEventListener(OPEN_IN_EDITOR_EVENT, edit)
+    return () => {
+      window.removeEventListener(PREVIEW_EVENT, show)
+      window.removeEventListener(OPEN_IN_EDITOR_EVENT, edit)
+    }
   }, [])
   const drawer = useDrawerController()
   const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(readDesktopSidebarOpen)
@@ -1352,6 +1451,12 @@ export function Workbench({ appearance, nativeStatus, onAppearanceChange, client
     const timer = window.setInterval(check, 60_000)
     return () => window.clearInterval(timer)
   }, [client])
+  const openRunFromRoute = useCallback((runId: string): void => {
+    if (!activityVisible(interfaceMode, 'runs')) return
+    requestRunFocus(runId)
+    setActivity('runs')
+  }, [interfaceMode])
+  const openAgentFromRoute = useCallback((): void => setActivity('agent'), [])
   const openSessionFromRoute = useCallback((workspace: string, sessionId: string): void => {
     if (!client) return
     setActivity('agent')
@@ -1363,6 +1468,7 @@ export function Workbench({ appearance, nativeStatus, onAppearanceChange, client
     const disposers: Array<() => void> = []
     const routeCommands: Array<{ id: ActivityId; title: string; keywords: string[] }> = [
       { id: 'agent', title: effectiveSettingsI18n.t('command.route.agent'), keywords: ['conversation', 'chat', '对话', '智能体'] },
+      { id: 'studio', title: effectiveSettingsI18n.t('command.route.studio'), keywords: ['studio', 'office', '3d', 'team', 'experts', '工作室', '办公室', '专家团'] },
       { id: 'runs', title: effectiveSettingsI18n.t('command.route.runs'), keywords: ['runs', 'plan', 'attention', '运行', '计划', '待处理'] },
       { id: 'workspace', title: effectiveSettingsI18n.t('command.route.workspace'), keywords: ['files', 'sessions', '工作区', '文件'] },
       { id: 'knowledge', title: effectiveSettingsI18n.t('command.route.knowledge'), keywords: ['documents', 'knowledge', 'pdf', '知识库', '文档', '资料'] },
@@ -1412,6 +1518,8 @@ export function Workbench({ appearance, nativeStatus, onAppearanceChange, client
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.isComposing || event.key === 'Process') return
+      // A key the focused editor already used (Ctrl+K asks the model there) is not a shortcut.
+      if (event.defaultPrevented) return
       const modifier = event.ctrlKey || event.metaKey
       if (modifier && event.shiftKey && event.key.toLocaleLowerCase() === 'p') {
         event.preventDefault()
@@ -1500,6 +1608,7 @@ export function Workbench({ appearance, nativeStatus, onAppearanceChange, client
       onPointerLeave={clearSpecular}
     >
       <LiquidBackdrop appearance={resolved} />
+      <LiquidGlassSurfaces enabled={resolved.effectiveRefraction} />
       <TitleStrip
         state={runtimeState}
         onCommand={openPalette}
@@ -1549,7 +1658,8 @@ export function Workbench({ appearance, nativeStatus, onAppearanceChange, client
       {activity === 'settings' ? (
         <Suspense fallback={<RouteLoading />}><LazySettingsRoute state={runtimeState} client={client} appearance={appearance} nativeStatus={nativeStatus ?? effectiveSettingsI18n.t('settings.rendererOnly')} onAppearanceChange={onAppearanceChange} registry={commandRegistry} layout={settingsLayout} i18n={effectiveSettingsI18n} interfaceMode={interfaceMode} onInterfaceModeChange={changeInterfaceMode} /></Suspense>
       ) : activity !== 'agent' ? (
-        <RouteOutlet route={activity as ActivityRoute} state={runtimeState} store={client?.store ?? fallbackStore} client={client} onOpenSession={openSessionFromRoute} />
+        <RouteOutlet route={activity as ActivityRoute} state={runtimeState} store={client?.store ?? fallbackStore} client={client} onOpenSession={openSessionFromRoute}
+          onOpenRun={openRunFromRoute} onOpenAgent={openAgentFromRoute} />
       ) : (
         <ConversationSurface
           state={runtimeState}
@@ -1593,8 +1703,10 @@ export function Workbench({ appearance, nativeStatus, onAppearanceChange, client
       />
       {drawer.narrow && drawer.active ? <button type="button" className="drawer-backdrop" aria-label={effectiveSettingsI18n.t('workbench.closeDrawer')} onClick={() => drawer.close()} /> : null}
       {documentPreview && client?.previewDocument ? <Suspense fallback={null}><OfficePreviewDialog request={documentPreview} client={client} onClose={() => setDocumentPreview(null)} /></Suspense> : null}
+      {preview ? <Suspense fallback={null}><PreviewSheet key={JSON.stringify(preview)} request={preview} client={client} onClose={() => setPreview(null)} /></Suspense> : null}
       {paletteOpen ? <CommandPalette registry={commandRegistry} onClose={() => { setPaletteOpen(false); paletteOpener.current?.focus() }} /> : null}
       <DeviceNotices notices={runtimeState.deviceNotices ?? []} />
+      <QuickActions client={client && typeof client.quickRun === 'function' ? client : null} />
     </div>
   )
 }

@@ -1,0 +1,61 @@
+\documentclass[UTF8,a4paper,12pt]{ctexart}
+\usepackage{amsmath, amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{float}
+\usepackage[sort&compress]{gbt7714}
+\bibliographystyle{gbt7714-numerical}
+\usepackage[hidelinks]{hyperref}
+
+\title{论文题目}
+\author{作者\thanks{单位，邮箱}}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+在这里写摘要：研究的问题、方法、主要结果和结论。
+\end{abstract}
+
+\noindent\textbf{关键词：}关键词一；关键词二；关键词三
+
+\section{引言}
+
+说明研究背景和问题。引用文献写作 \cite{lecun2015deep}，多篇文献写作 \cite{lecun2015deep,gbt7714-2015}。
+
+\section{方法}
+
+公式用 equation 环境，并给出标签以便引用：
+\begin{equation}
+  y = f(\mathbf{x}; \theta) + \varepsilon
+  \label{eq:model}
+\end{equation}
+式~\eqref{eq:model} 中 $\theta$ 为待估参数。
+
+\section{结果}
+
+表格用 booktabs 三线表：
+\begin{table}[H]
+  \centering
+  \caption{实验结果}
+  \label{tab:results}
+  \begin{tabular}{lcc}
+    \toprule
+    方法 & 指标一 & 指标二 \\
+    \midrule
+    方法 A & 0.91 & 0.88 \\
+    方法 B & 0.94 & 0.90 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+表~\ref{tab:results} 给出了结果。
+
+\section{结论}
+
+总结主要发现和后续工作。
+
+\bibliography{refs}
+
+\end{document}

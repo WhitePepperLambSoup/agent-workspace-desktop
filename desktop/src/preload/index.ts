@@ -4,11 +4,11 @@ import {
   nativeAppearanceRequestSchema,
   nativeAppearanceResultSchema,
 } from '../shared/appearance'
-import { type AgentWorkspaceApi, type DesktopHostApi, type UiEvent, uiCommandSchema } from '../shared/api'
+import { type AgentWorkspaceApi, type DesktopHostApi, type PreviewApi, type UiEvent, type UiResponse, uiCommandSchema } from '../shared/api'
 import { appInfoSchema, desktopNotificationSchema, updateStatusSchema } from '../shared/desktop'
 import { parseAttachmentCapabilities, validateAttachmentImports } from '../shared/attachment-validation'
-import { eventEnvelopeSchema, responseEnvelopeSchema } from '../shared/protocol'
 import { windowActionResultSchema, windowActionSchema } from '../shared/window'
+import { previewActionSchema, previewBoundsSchema, previewStateSchema, previewTargetSchema } from '../shared/preview'
 import { synchronizeNativeWindowShape } from './window-shape'
 
 // Keep CSS clipping aligned with the native HWND on system maximize/restore and
@@ -72,18 +72,45 @@ const desktopMethods: DesktopHostApi = {
   },
 }
 const desktop = Object.freeze(desktopMethods)
+
+const previewMethods: PreviewApi = {
+  async open(target) {
+    const parsed = previewTargetSchema.safeParse(target)
+    return parsed.success && (await ipcRenderer.invoke('agent-workspace:preview-open', parsed.data)) === true
+  },
+  setBounds(bounds) {
+    const parsed = previewBoundsSchema.safeParse(bounds)
+    if (parsed.success) ipcRenderer.send('agent-workspace:preview-bounds', parsed.data)
+  },
+  async act(action) {
+    const parsed = previewActionSchema.safeParse(action)
+    return parsed.success && (await ipcRenderer.invoke('agent-workspace:preview-action', parsed.data)) === true
+  },
+  onState(listener) {
+    const handler = (_event: Electron.IpcRendererEvent, state: unknown): void => {
+      const parsed = previewStateSchema.safeParse(state)
+      if (parsed.success) listener(parsed.data)
+    }
+    ipcRenderer.on('agent-workspace:preview-state', handler)
+    return () => ipcRenderer.removeListener('agent-workspace:preview-state', handler)
+  },
+}
+const preview = Object.freeze(previewMethods)
 const interfaceArgument = process.argv.find((value) => value.startsWith('--agent-workspace-interface='))?.split('=')[1]
 
 const api: AgentWorkspaceApi = {
   desktop,
+  preview,
   interfaceDefault: interfaceArgument === 'simple' || interfaceArgument === 'full' ? interfaceArgument : undefined,
+  // Responses and events come from the main process, which validated each one when it read it
+  // from the sidecar; parsing them again here cost the window ~10 ms per megabyte.
   async invoke(command) {
     const validated = uiCommandSchema.parse(command)
-    return responseEnvelopeSchema.parse(await ipcRenderer.invoke('agent-workspace:invoke', validated))
+    return (await ipcRenderer.invoke('agent-workspace:invoke', validated)) as UiResponse
   },
   subscribe(listener) {
     const handler = (_event: Electron.IpcRendererEvent, document: unknown): void => {
-      listener(eventEnvelopeSchema.parse(document) as UiEvent)
+      listener(document as UiEvent)
     }
     ipcRenderer.on('agent-workspace:event', handler)
     // Register the listener before acknowledging readiness so the main-process
@@ -131,6 +158,27 @@ const api: AgentWorkspaceApi = {
     if (typeof text !== 'string' || text.length > 64 * 1024) return false
     return (await ipcRenderer.invoke('agent-workspace:copy-text', text)) === true
   },
+  async configureQuickActions(settings) {
+    const result: unknown = await ipcRenderer.invoke('agent-workspace:quick-actions-configure', {
+      enabled: settings?.enabled === true,
+      accelerator: typeof settings?.accelerator === 'string' ? settings.accelerator.slice(0, 40) : '',
+    })
+    const value = (result ?? {}) as { ok?: unknown; error?: unknown }
+    return value.ok === true
+      ? { ok: true }
+      : { ok: false, error: value.error === 'taken' ? 'taken' : 'invalid' }
+  },
+  onQuickActions(listener) {
+    const handler = (_event: Electron.IpcRendererEvent, capture: unknown) => {
+      const value = (capture ?? {}) as { text?: unknown; image?: unknown }
+      listener({
+        text: typeof value.text === 'string' ? value.text.slice(0, 20_000) : '',
+        image: typeof value.image === 'string' && value.image.length <= 9 * 1024 * 1024 ? value.image : null,
+      })
+    }
+    ipcRenderer.on('agent-workspace:quick-actions', handler)
+    return () => ipcRenderer.removeListener('agent-workspace:quick-actions', handler)
+  },
   async setAppearance(request) {
     const validated = nativeAppearanceRequestSchema.parse(request)
     return nativeAppearanceResultSchema.parse(
@@ -156,6 +204,26 @@ const api: AgentWorkspaceApi = {
   },
   isQuitApproved() {
     return ipcRenderer.sendSync('agent-workspace:is-quit-approved') === true
+  },
+  async exportPdf(request) {
+    if (!request || typeof request.html !== 'string' || typeof request.css !== 'string' || typeof request.title !== 'string') return null
+    const result: unknown = await ipcRenderer.invoke('agent-workspace:export-pdf', { html: request.html, css: request.css, title: request.title })
+    return typeof result === 'string' ? result : null
+  },
+  async readNotebook(path) {
+    if (typeof path !== 'string' || !path || path.length > 4096) return null
+    const result: unknown = await ipcRenderer.invoke('agent-workspace:read-notebook', path)
+    return typeof result === 'string' ? result : null
+  },
+  async readFigure(path) {
+    if (typeof path !== 'string' || !path || path.length > 4096) return null
+    const result: unknown = await ipcRenderer.invoke('agent-workspace:read-figure', path)
+    return typeof result === 'string' && /^data:image\/(png|jpeg);base64,/.test(result) ? result : null
+  },
+  async readPdf(path) {
+    if (typeof path !== 'string' || !path || path.length > 4096) return null
+    const result: unknown = await ipcRenderer.invoke('agent-workspace:read-pdf', path)
+    return result instanceof Uint8Array ? result : null
   },
   async imageThumbnail(workspacePath, relativePath) {
     if (typeof workspacePath !== 'string' || typeof relativePath !== 'string' || workspacePath.length > 4096 || relativePath.length > 1024) return null

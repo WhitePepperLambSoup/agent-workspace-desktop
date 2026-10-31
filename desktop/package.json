@@ -1,6 +1,6 @@
 {
   "name": "agent-workspace-desktop",
-  "version": "0.2.0-alpha.1",
+  "version": "0.2.0-alpha.2",
   "description": "Secure Electron shell for Agent Workspace",
   "main": "out/main/index.js",
   "scripts": {

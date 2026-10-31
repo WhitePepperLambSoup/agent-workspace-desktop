@@ -1224,6 +1224,11 @@ export class WorkbenchBridgeClient {
     return this.invoke({ type: 'science.remove', payload: {}, sessionId: null })
   }
 
+  /** The servers of ~/.ssh/config by name (read from the file; nothing is connected to). */
+  async listServers(): Promise<UiResponse> {
+    return this.invoke({ type: 'science.servers', payload: {}, sessionId: null })
+  }
+
   /** The point map saved beside a figure (figures/x.png → figures/x.points.json). */
   async figurePoints(path: string): Promise<UiResponse> {
     return this.invoke({ type: 'figures.points', payload: { path }, sessionId: null })

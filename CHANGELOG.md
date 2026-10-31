@@ -6,6 +6,44 @@ All notable changes to the desktop app are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0-alpha.2] - 2026-10-31
+
+### Added
+
+- The studio behind the conversation: under liquid glass, the conversation's 3D studio is the
+  window's backdrop, blurred and dimmed so text stays readable. The agent works in it as the turn
+  goes: at the desk on the web or writing, at the shelf with the knowledge base, at the printer
+  with a document it made, at the window while it thinks, at the door while a change waits for
+  approval. A button in the title bar shows it in full and Esc goes back. Settings > Appearance >
+  Conversation backdrop switches back to the colour field.
+- Shown in full, the view follows the agent to where its work is: the library while it searches
+  the knowledge base or papers, the building site while it writes and tests code, the server room
+  while it runs commands on a server. Any floor of the building or place of the campus can be
+  picked instead.
+- The campus around the studio: the library (knowledge bases and the reference library), the
+  building site (the open folder's code, a building per file), the server room (the hosts of
+  `~/.ssh/config`, Slurm and local jobs), the duty room (scheduled tasks) and the front desk (the
+  phone connection). Clicking something there opens its page.
+- Sub-agents in the studio: the ones the agent hands work to come in by a door, work at the free
+  desks and leave when they are done. Experts of a team come in the same way.
+- The sandbox's glass room in the studio, where the agent runs code in the sandbox.
+
+### Changed
+
+- The window's glass is clearer over the studio, and the studio behind it moves at 30 frames a
+  second.
+
+### Fixed
+
+- Where the GPU does not draw it, the studio is not used behind the conversation: drawn in
+  software it slowed the whole window. The colour field is shown instead.
+- While sub-agents worked, the agent in the studio could look as if it were writing its answer:
+  a resync of the window with the sidecar dropped the tool it was running. The studio now reads
+  the turn's tools from the conversation's timeline.
+- Between two tool calls the agent in the studio thinks at its desk, instead of "Writing the
+  answer" with the sentence it opened the turn with.
+- The studio stands still when Windows' animation effects are turned off while the app is open.
+
 ## [0.2.0-alpha.1] - 2026-10-30
 
 ### Added

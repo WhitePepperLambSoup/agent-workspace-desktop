@@ -226,3 +226,162 @@
 @media (prefers-reduced-motion: reduce) {
   .studio-tag, .studio-bubble, .studio-floor-sign { will-change: auto; transition: none; }
 }
+
+/* Behind the window's panes: the conversation's studio, frosted until it is shown in full. */
+.studio-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  clip-path: inset(0 round var(--window-radius, 8px));
+  pointer-events: none;
+  background-color: var(--optical-base);
+}
+.studio-backdrop-stage {
+  position: absolute;
+  inset: 0;
+}
+.studio-backdrop .studio-canvas {
+  opacity: 0;
+  /* Under liquid glass: only softened, so the room's lines show and bend at the panes' rims;
+     dimmed so the text on the panes keeps its contrast. A little larger than the window, so
+     the blur has no soft edge. */
+  transform: scale(1.03);
+  filter: blur(3px) saturate(1.15) brightness(.68);
+  cursor: default;
+  transition: filter .45s ease, transform .45s ease, opacity .9s ease;
+}
+[data-color-mode="light"] .studio-backdrop .studio-canvas {
+  /* Light panes' grey text needs an almost white ground: the room shows faintly, mostly between the panes. */
+  filter: blur(3px) saturate(1.1) brightness(1.35) contrast(.5);
+}
+.studio-backdrop[data-ready="true"] .studio-canvas { opacity: 1; }
+[data-color-mode="light"] .studio-backdrop { background-color: #f7f5f1; }
+[data-color-mode="light"] .studio-backdrop[data-ready="true"][data-viewing="false"] .studio-canvas { opacity: .5; }
+.studio-backdrop .studio-overlay,
+.studio-backdrop .studio-hint { display: none; }
+.studio-backdrop[data-viewing="true"] { pointer-events: auto; }
+.studio-backdrop[data-viewing="true"] .studio-canvas {
+  transform: none;
+  filter: none;
+  cursor: grab;
+}
+.studio-backdrop[data-viewing="true"] .studio-overlay { display: block; }
+.studio-backdrop[data-viewing="true"] .studio-hint { display: block; }
+/* While the studio is shown, the panes step aside; the title bar stays for the way back. */
+.workbench[data-studio-view] > :is(.activity-rail, .session-sidebar, .conversation-column, .route-column, .settings-column, .inspector, .panel-resizer) {
+  transition: opacity .35s ease, transform .35s ease, visibility 0s linear .35s;
+}
+.workbench[data-studio-view="true"] > :is(.activity-rail, .session-sidebar, .conversation-column, .route-column, .settings-column, .inspector, .panel-resizer) {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: scale(.985);
+}
+.workbench[data-studio-view="leaving"] > :is(.activity-rail, .session-sidebar, .conversation-column, .route-column, .settings-column, .inspector, .panel-resizer) {
+  transition-delay: 0s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .studio-backdrop .studio-canvas,
+  .workbench[data-studio-view] > * { transition: none; }
+}
+/* The campus's places: signs over things in them, and the list below the stage. */
+.place-sign {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 230px;
+}
+.place-sign[data-pick="false"] { cursor: default; }
+.place-sign[data-tone="alert"] { box-shadow: inset 0 0 0 1.5px #e0a13a, 0 6px 16px rgba(0, 0, 0, .18); }
+.place-sign[data-tone="alert"] .studio-floor-summary { color: #9a5b00; }
+[data-color-mode="dark"] .place-sign[data-tone="alert"] .studio-floor-summary { color: #f2c46d; }
+.place-route .place-roster {
+  max-height: 132px;
+  overflow-y: auto;
+}
+.place-roster button > span:last-child {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Shown in full with other teams at work: the building's floors to look at, like a lift's buttons. */
+.studio-floor-switch {
+  position: absolute;
+  /* Below the title bar, which stays over the studio. */
+  top: 86px;
+  left: 18px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 240px;
+  padding: 6px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--canvas) 72%, transparent);
+  box-shadow: inset 0 0 0 1px var(--pane-border, rgba(255, 255, 255, .2)), 0 10px 26px rgba(0, 0, 0, .22);
+  backdrop-filter: blur(10px) saturate(1.3);
+}
+.studio-floor-switch button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 4px 10px;
+  color: var(--text);
+  font: 500 12px/1.3 var(--font-ui, inherit);
+  text-align: left;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  cursor: pointer;
+}
+.studio-floor-switch button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio-floor-switch button strong {
+  min-width: 2.6em;
+  color: var(--accent);
+  font-weight: 700;
+}
+.studio-floor-switch button[data-busy="true"] strong::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 5px;
+  vertical-align: middle;
+  border-radius: 50%;
+  background: #38c98f;
+}
+.studio-floor-switch button:hover { background: var(--control-fill-hover, rgba(255, 255, 255, .12)); }
+.studio-floor-switch button[aria-checked="true"] {
+  color: var(--active-text, #fff);
+  background: var(--active-fill, var(--accent));
+}
+.studio-floor-switch button[aria-checked="true"] strong { color: inherit; }
+/* A place of the campus shown behind the panes in the studio's stead. The studio's labels set
+   their own visibility every frame, so its overlay is taken out altogether. */
+.studio-backdrop[data-place-shown] .studio-backdrop-stage { visibility: hidden; }
+.studio-backdrop[data-place-shown] .studio-backdrop-stage .studio-overlay { display: none; }
+.studio-backdrop-place {
+  position: absolute;
+  inset: 72px 0 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--optical-base);
+}
+.studio-backdrop-place .place-stage { flex: 1 1 auto; }
+.studio-backdrop-place .place-roster {
+  padding-left: 270px;
+  background: color-mix(in srgb, var(--canvas) 72%, transparent);
+}
+.studio-switch-heading {
+  margin: 6px 10px 2px;
+  color: var(--text-muted);
+  font: 600 10.5px/1.3 var(--font-ui, inherit);
+  letter-spacing: .04em;
+}
+.studio-floor-switch { max-height: calc(100vh - 120px); overflow-y: auto; }

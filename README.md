@@ -7,7 +7,8 @@ it out with real tools — files, Git, a staged sandbox for commands, a terminal
 and your own knowledge base — asking before anything that changes your files or reaches the
 network. It works with the cloud model you choose or a model served on your own computer, and
 keeps every conversation, change and approval on this machine. A request can also go to a team of
-specialists that the agent leads, and you can watch the teams work in a 3D studio.
+specialists that the agent leads. Behind the conversation is a 3D studio where the agent, its
+sub-agents and the teams can be seen at work.
 
 The Android app ([agent-workspace-android](https://github.com/WhitePepperLambSoup/agent-workspace-android))
 shares the same Python core; a phone running version 2.5.0 or later can connect to this computer.
@@ -43,6 +44,32 @@ in, or a person to open their task.
 
 <p align="center">
   <img src="docs/screenshots/studio-floor-en.png" width="820" alt="One floor of the studio: the lead at the board and three experts at their desks">
+</p>
+
+### The studio behind the conversation
+
+Under liquid glass, the conversation's studio is the window's backdrop, blurred and dimmed so the
+text stays readable. The agent works in it as the task goes: at the desk on the web, at the shelf
+with the knowledge base, at the printer with a document it made, at the window while it thinks.
+Sub-agents it hands work to come in by the door, work at the free desks and leave when they are
+done. Studio in the title bar shows it in full, and Esc goes back. On a slow computer, Settings →
+Appearance → Backdrop switches to the colour field; without GPU acceleration the window uses the
+colour field by itself.
+
+<p align="center">
+  <img src="docs/screenshots/studio-backdrop-en.png" width="820" alt="A coding task with the studio blurred behind the conversation">
+</p>
+
+Shown in full, the view follows the agent to where its work is: the library while it searches the
+knowledge base or papers, the building site while it writes and tests code, the server room while
+it runs commands on a server. The campus around the studio also has a duty room for scheduled
+tasks and a front desk for the phone connection. Each place is drawn from what is on this computer
+(the open folder's files and Git state, the knowledge bases, the hosts of `~/.ssh/config`), and
+clicking something opens its page.
+
+<p align="center">
+  <img src="docs/screenshots/campus-en.png" width="408" alt="The campus: the studio, the library, the building site, the server room, the duty room and the front desk">
+  <img src="docs/screenshots/campus-site-en.png" width="408" alt="The building site: the open folder's files as buildings, and the agent at the site office">
 </p>
 
 ### Conversations and tasks

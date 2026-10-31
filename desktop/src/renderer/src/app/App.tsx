@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { NativeAppearanceResult } from '../../../shared/appearance'
 import {
   APPEARANCE_PALETTES,
+  BACKDROPS,
   COLOR_MODES,
   DEFAULT_APPEARANCE,
   type AppearanceState,
@@ -28,7 +29,8 @@ function loadAppearance(): AppearanceState {
       typeof candidate.reduceMotion !== 'boolean' ||
       typeof candidate.highContrast !== 'boolean' ||
       (candidate.transparentDesktop !== undefined && typeof candidate.transparentDesktop !== 'boolean') ||
-      (candidate.refraction !== undefined && typeof candidate.refraction !== 'boolean')
+      (candidate.refraction !== undefined && typeof candidate.refraction !== 'boolean') ||
+      (candidate.backdrop !== undefined && !BACKDROPS.includes(candidate.backdrop))
     ) {
       return DEFAULT_APPEARANCE
     }
@@ -42,6 +44,7 @@ function loadAppearance(): AppearanceState {
       highContrast: resolved.highContrast,
       transparentDesktop: resolved.transparentDesktop ?? false,
       ...(resolved.refraction === false ? { refraction: false } : {}),
+      ...(resolved.backdrop === 'field' ? { backdrop: 'field' as const } : {}),
     }
   } catch {
     return DEFAULT_APPEARANCE
@@ -106,6 +109,7 @@ export function App({ client, registry }: { client?: WorkbenchBridgeClient; regi
       highContrast: next.highContrast,
       transparentDesktop: next.transparentDesktop,
       ...(next.refraction === false ? { refraction: false } : {}),
+      ...(next.backdrop === 'field' ? { backdrop: 'field' as const } : {}),
     }
     setAppearance(stored)
     try {
@@ -126,6 +130,7 @@ export function App({ client, registry }: { client?: WorkbenchBridgeClient; regi
       data-reduced-motion={appearance.reduceMotion ? 'true' : 'false'}
       data-desktop-transparent={resolved.effectiveTransparentDesktop ? 'true' : 'false'}
       data-refraction={resolved.effectiveRefraction ? 'true' : 'false'}
+      data-backdrop={resolved.effectiveBackdrop}
       style={{ '--appearance-intensity': appearance.intensity } as React.CSSProperties}
     >
       <Workbench

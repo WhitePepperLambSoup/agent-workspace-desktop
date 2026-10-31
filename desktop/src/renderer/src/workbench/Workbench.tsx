@@ -41,6 +41,7 @@ import { ComposerDraftStore, composerDraftScope } from '../state/composer-drafts
 import type { AppearanceState } from '../design/appearance'
 import { resolveAppearance } from '../design/appearance'
 import { LiquidBackdrop } from '../effects/LiquidBackdrop'
+import { StudioBackdrop } from '../studio/StudioBackdrop'
 import { LiquidGlassSurfaces } from '../effects/liquid-glass/LiquidGlassSurfaces'
 import { GatewayCommandError, type WorkbenchBridgeClient } from '../bridge/client'
 import { CommandPalette } from '../commands/CommandPalette'
@@ -83,7 +84,8 @@ import { QuickActions } from '../office/QuickActions'
 import { shortcutFromEvent, useShortcuts } from '../shortcuts/keymap'
 import { useDrawerController } from './useDrawerController'
 
-type ActivityId = 'agent' | 'studio' | 'runs' | 'workspace' | 'knowledge' | 'schedules' | 'search' | 'changes' | 'jobs' | 'operations' | 'settings'
+const ACTIVITY_IDS = ['agent', 'studio', 'runs', 'workspace', 'knowledge', 'schedules', 'search', 'changes', 'jobs', 'operations', 'settings'] as const
+type ActivityId = (typeof ACTIVITY_IDS)[number]
 type Autonomy = 'ask' | 'workspace' | 'yolo' | 'full_access'
 
 interface WorkbenchProps {
@@ -307,7 +309,9 @@ export function settingsLayoutForViewport(width: number): 'stacked' | 'split' {
   return width <= 1100 ? 'stacked' : 'split'
 }
 
-function TitleStrip({ onWindowAction, onCommand, onToggleInspector, inspectorOpen, showInspectorToggle, state, onAutonomyChange, onOpenWorkspace, onOpenWorkspacePath, onOpenControlCenter }: {
+function TitleStrip({ onWindowAction, onCommand, onToggleInspector, inspectorOpen, showInspectorToggle, state, onAutonomyChange, onOpenWorkspace, onOpenWorkspacePath, onOpenControlCenter, studio }: {
+  /** The studio behind the panes: shown in full, or back to the conversation. */
+  studio?: { viewing: boolean; onToggle: () => void }
   onWindowAction: (action: WindowAction) => void
   onCommand: (opener: HTMLButtonElement) => void
   onToggleInspector: (opener: HTMLButtonElement) => void
@@ -476,6 +480,16 @@ function TitleStrip({ onWindowAction, onCommand, onToggleInspector, inspectorOpe
         >
           <Workflow size={16} />
           <span>{tx('Control center')}</span>
+        </button> : null}
+        {studio ? <button
+          className="title-nav-button studio-view-button"
+          type="button"
+          aria-pressed={studio.viewing}
+          title={translate(locale, studio.viewing ? 'studio.backdrop.back' : 'studio.backdrop.show')}
+          onClick={() => studio.onToggle()}
+        >
+          {studio.viewing ? <MessageSquare size={16} /> : <Armchair size={16} />}
+          <span>{translate(locale, studio.viewing ? 'studio.backdrop.back' : 'studio.backdrop.show')}</span>
         </button> : null}
         <button className="command-trigger" type="button" title={tx('Command palette')} aria-label={tx('Command palette')} onClick={(event) => onCommand(event.currentTarget)}>
           <Command size={14} />
@@ -1254,6 +1268,32 @@ export function Workbench({ appearance, nativeStatus, onAppearanceChange, client
   const effectiveSettingsI18n = settingsI18n ?? providedI18n ?? standaloneSettingsI18n
   const resolved = resolveAppearance(appearance)
   const runtimeState = useRuntimeState(client)
+  // The conversation's studio behind the panes (the default under liquid glass), unless WebGL failed.
+  const [backdropFailed, setBackdropFailed] = useState(false)
+  const studioBackdrop = resolved.effectiveBackdrop === 'studio' && !backdropFailed
+  // Shown in full, the panes step aside; 'leaving' while they come back.
+  const [studioView, setStudioView] = useState<'off' | 'on' | 'leaving'>('off')
+  const leaveStudio = useCallback((): void => {
+    setStudioView((view) => (view === 'on' ? 'leaving' : view))
+  }, [])
+  useEffect(() => {
+    if (studioView !== 'leaving') return undefined
+    const timer = window.setTimeout(() => setStudioView('off'), 400)
+    return () => window.clearTimeout(timer)
+  }, [studioView])
+  useEffect(() => {
+    if (studioView !== 'on') return undefined
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      event.preventDefault()
+      leaveStudio()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [leaveStudio, studioView])
+  useEffect(() => {
+    if (!studioBackdrop) setStudioView('off')
+  }, [studioBackdrop])
   const shortcuts = useShortcuts()
   const referenceMode = Boolean(client && typeof window !== 'undefined' && window.agentWorkspace)
   const ownedRegistry = useMemo(createContributionRegistry, [])
@@ -1457,6 +1497,12 @@ export function Workbench({ appearance, nativeStatus, onAppearanceChange, client
     setActivity('runs')
   }, [interfaceMode])
   const openAgentFromRoute = useCallback((): void => setActivity('agent'), [])
+  const openRouteFromStudio = useCallback((route: string): void => {
+    const id = route as ActivityId
+    if (ACTIVITY_IDS.includes(id) && activityVisible(interfaceMode, id)) setActivity(id)
+  }, [interfaceMode])
+  // Another page opens: the studio steps back behind the panes.
+  useEffect(() => { leaveStudio() }, [activity, leaveStudio])
   const openSessionFromRoute = useCallback((workspace: string, sessionId: string): void => {
     if (!client) return
     setActivity('agent')
@@ -1603,11 +1649,38 @@ export function Workbench({ appearance, nativeStatus, onAppearanceChange, client
       data-layout="desktop"
       data-sidebar-open={sidebarOpen ? 'true' : 'false'}
       data-inspector-open={inspectorOpen ? 'true' : 'false'}
+      data-studio-view={studioBackdrop && studioView !== 'off' ? (studioView === 'on' ? 'true' : 'leaving') : undefined}
       style={{ '--panel-sidebar-width': `${panelWidths.sidebar}px`, '--panel-inspector-width': `${panelWidths.inspector}px` } as CSSProperties}
       onPointerMove={handleSpecular}
       onPointerLeave={clearSpecular}
     >
-      <LiquidBackdrop appearance={resolved} />
+      {studioBackdrop ? (
+        <StudioBackdrop
+          state={runtimeState}
+          viewing={studioView === 'on'}
+          paused={activity === 'studio'}
+          onPick={(actor) => {
+            if (actor.lead) {
+              leaveStudio()
+              selectActivity('agent')
+            } else if (actor.runId) {
+              openRunFromRoute(actor.runId)
+            }
+          }}
+          client={client}
+          onOpenRoute={openRouteFromStudio}
+          onOpenRun={openRunFromRoute}
+          onLeave={() => {
+            leaveStudio()
+            selectActivity('agent')
+          }}
+          onOpenSession={(workspace, sessionId) => {
+            leaveStudio()
+            openSessionFromRoute(workspace, sessionId)
+          }}
+          onFailure={() => setBackdropFailed(true)}
+        />
+      ) : <LiquidBackdrop appearance={resolved} />}
       <LiquidGlassSurfaces enabled={resolved.effectiveRefraction} />
       <TitleStrip
         state={runtimeState}
@@ -1628,6 +1701,7 @@ export function Workbench({ appearance, nativeStatus, onAppearanceChange, client
           ? (path) => client.switchWorkspacePath(path)
           : undefined}
         onOpenControlCenter={interfaceMode === 'full' ? () => selectActivity('runs') : undefined}
+        studio={studioBackdrop ? { viewing: studioView === 'on', onToggle: () => (studioView === 'on' ? leaveStudio() : setStudioView('on')) } : undefined}
       />
       <ActivityRail active={activity} onSelect={(id) => selectActivity(id)} onToggleSessions={toggleSessions} sessionsOpen={sidebarOpen} sessionsToggleLabel={effectiveSettingsI18n.t('command.toggleSessions')} settingsLabel={effectiveSettingsI18n.t('settings.title')} settingsShortcutLabel={effectiveSettingsI18n.t('command.route.settings')} mode={interfaceMode} unreadLabel={scheduleUnread ? effectiveSettingsI18n.t('workbench.schedulesUnread', { count: scheduleUnread }) : null} />
       <SessionSidebar
@@ -1659,7 +1733,7 @@ export function Workbench({ appearance, nativeStatus, onAppearanceChange, client
         <Suspense fallback={<RouteLoading />}><LazySettingsRoute state={runtimeState} client={client} appearance={appearance} nativeStatus={nativeStatus ?? effectiveSettingsI18n.t('settings.rendererOnly')} onAppearanceChange={onAppearanceChange} registry={commandRegistry} layout={settingsLayout} i18n={effectiveSettingsI18n} interfaceMode={interfaceMode} onInterfaceModeChange={changeInterfaceMode} /></Suspense>
       ) : activity !== 'agent' ? (
         <RouteOutlet route={activity as ActivityRoute} state={runtimeState} store={client?.store ?? fallbackStore} client={client} onOpenSession={openSessionFromRoute}
-          onOpenRun={openRunFromRoute} onOpenAgent={openAgentFromRoute} />
+          onOpenRun={openRunFromRoute} onOpenAgent={openAgentFromRoute} onOpenRoute={openRouteFromStudio} />
       ) : (
         <ConversationSurface
           state={runtimeState}

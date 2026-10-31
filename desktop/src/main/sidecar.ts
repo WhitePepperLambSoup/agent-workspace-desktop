@@ -298,6 +298,7 @@ const EXPECTED_RESPONSE_TYPES: Record<
   'science.install': 'science.install.result',
   'science.cancel': 'science.cancel.result',
   'science.remove': 'science.remove.result',
+  'science.servers': 'science.servers.result',
   'figures.points': 'figures.points.result',
   'figures.correct': 'figures.correct.result',
   'answer.export': 'answer.export.result',

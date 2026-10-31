@@ -323,6 +323,19 @@
   --lg-glare: .4;
   --pane-shadow: 0 14px 34px rgba(28, 48, 78, .14), 0 1px 2px rgba(28, 48, 78, .08);
 }
+/* Over the studio the panes are clear liquid glass: a light blur and a thin fill, so the room's
+   lines show through and bend at the rims; the studio's own filter (studio.css) dims it so muted
+   text keeps 4.5:1. */
+.app-shell[data-material="liquid"][data-backdrop="studio"][data-color-mode="dark"] .workbench[data-ui-version="reference"] {
+  --pane-fill: color-mix(in srgb, var(--canvas) 40%, transparent);
+  --pane-blur: blur(6px) saturate(1.3);
+}
+.app-shell[data-material="liquid"][data-refraction="true"][data-backdrop="studio"][data-color-mode="dark"] .workbench[data-ui-version="reference"] {
+  --pane-fill: color-mix(in srgb, var(--canvas) 40%, transparent);
+}
+.app-shell[data-material="liquid"][data-refraction="true"][data-backdrop="studio"] .workbench[data-ui-version="reference"] > [data-liquid-glass="pane"] {
+  --lg-blur: 6px;
+}
 .app-shell[data-material="liquid"][data-refraction="true"] .workbench[data-ui-version="reference"] [data-liquid-glass] {
   --lg-blur: 26px;
   backdrop-filter: blur(var(--lg-blur)) var(--lg-filter);

@@ -36,11 +36,13 @@ interface RouteActions {
   onOpenRun?: (runId: string) => void
   /** Back to the conversation. */
   onOpenAgent?: () => void
+  /** Another page of the window, by its id (the studio's places open the pages they show). */
+  onOpenRoute?: (route: string) => void
 }
 
-function RouteBody({ route, state, client, onOpenSession, onOpenRun, onOpenAgent }: { route: ActivityRoute; state: WorkbenchState; client?: WorkbenchBridgeClient } & RouteActions) {
+function RouteBody({ route, state, client, onOpenSession, onOpenRun, onOpenAgent, onOpenRoute }: { route: ActivityRoute; state: WorkbenchState; client?: WorkbenchBridgeClient } & RouteActions) {
   if (route === 'agent') return <AgentRoute />
-  if (route === 'studio') return <LazyStudioRoute state={state} onOpenRun={onOpenRun} onOpenAgent={onOpenAgent} onOpenSession={onOpenSession} />
+  if (route === 'studio') return <LazyStudioRoute state={state} client={client} onOpenRun={onOpenRun} onOpenAgent={onOpenAgent} onOpenSession={onOpenSession} onOpenRoute={onOpenRoute} />
   if (route === 'runs') return <LazyRunControlCenter state={state} client={client} />
   if (route === 'workspace') return <LazyWorkspaceRoute state={state} client={client} />
   if (route === 'knowledge') return <LazyKnowledgeRoute client={client} />

@@ -9,7 +9,7 @@
   overflow: hidden;
   background: transparent;
 }
-.workbench > :not(.liquid-backdrop) { z-index: 1; }
+.workbench > :not(.liquid-backdrop):not(.studio-backdrop) { z-index: 1; }
 .panel-resizer { display: none; }
 .title-strip {
   grid-column: 1 / -1;

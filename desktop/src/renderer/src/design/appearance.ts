@@ -10,7 +10,11 @@ export const APPEARANCE_PALETTES = [
 
 export const COLOR_MODES = ['dark', 'light', 'system'] as const
 
+export const BACKDROPS = ['studio', 'field'] as const
+
 export type AppearancePalette = (typeof APPEARANCE_PALETTES)[number]
+/** What liquid glass shows behind the panes: the conversation's studio, or the drifting colour field. */
+export type Backdrop = (typeof BACKDROPS)[number]
 export type ColorMode = (typeof COLOR_MODES)[number]
 
 export interface AppearanceState {
@@ -23,6 +27,8 @@ export interface AppearanceState {
   transparentDesktop: boolean
   /** Liquid glass bends the backdrop at the rims of panes and dialogs; absent means on. */
   refraction?: boolean
+  /** Absent means the studio. */
+  backdrop?: Backdrop
 }
 
 export interface ResolvedAppearance extends AppearanceState {
@@ -30,6 +36,8 @@ export interface ResolvedAppearance extends AppearanceState {
   effectiveTransparentDesktop: boolean
   animateOptics: boolean
   effectiveRefraction: boolean
+  /** The studio only under liquid glass over the app's own backdrop; 'none' where no backdrop shows. */
+  effectiveBackdrop: Backdrop | 'none'
 }
 
 export const DEFAULT_APPEARANCE: AppearanceState = Object.freeze({
@@ -59,5 +67,7 @@ export function resolveAppearance(input: Partial<AppearanceState> = {}): Resolve
     effectiveRefraction:
       effectiveMode === 'liquid' && appearance.refraction !== false && !appearance.highContrast
       && !effectiveTransparentDesktop,
+    effectiveBackdrop: effectiveMode !== 'liquid' ? 'none'
+      : appearance.backdrop === 'field' || effectiveTransparentDesktop ? 'field' : 'studio',
   }
 }

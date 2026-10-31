@@ -1,72 +1,89 @@
-import { Building2, Pause, Play, RotateCcw } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { Building2, Map as MapIcon, Pause, Play, RotateCcw } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 
-import { useOptionalI18n, type I18nValue } from '../i18n/I18nProvider'
+import type { WorkbenchBridgeClient } from '../bridge/client'
 import type { MessageKey } from '../i18n/messages'
+
+import { useOptionalI18n } from '../i18n/I18nProvider'
 import type { WorkbenchState } from '../state/workbench-types'
 import { libraryName } from '../team/catalog'
 import { useTeamSettings } from '../team/team-settings'
-import { studioCast, type StudioActor } from './cast'
-import { busyTeams, floorOrder, floorSummary, studioFloors, type FloorSummary } from './floors'
-import type { StudioActorView, StudioFloorView, StudioScene } from './scene'
+import { studioCast } from './cast'
+import { busyTeams, floorOrder } from './floors'
+import type { StudioFloorView, StudioScene } from './scene'
+import { actorView, buildingFloors, summaryText, useShellLook } from './views'
+import type { PlaceId } from './places/models'
+import { PlaceView } from './places/PlaceView'
 import './studio.css'
 
-/** The words for an actor: their state (or what they are doing) and a bubble when there is something to say. */
-export function actorView(actor: StudioActor, t: I18nValue['t']): StudioActorView {
-  const stateLabel = actor.state === 'working' && actor.activity
-    ? t(`team.activity.${actor.activity}` as MessageKey)
-    : t(`studio.state.${actor.state}` as MessageKey)
-  const bubble = actor.state === 'answering' ? actor.speech
-    : actor.state === 'waiting' ? '?'
-      : actor.state === 'done' ? '✓'
-        : actor.state === 'failed' ? '!'
-          : actor.state === 'working' && actor.spot === 'table' ? '…'
-            : undefined
-  return { ...actor, stateLabel, ...(bubble ? { bubble } : {}) }
-}
+export { actorView, summaryText }
 
-export function summaryText(summary: FloorSummary, t: I18nValue['t']): string {
-  if (summary.kind === 'working') {
-    return summary.queued > 0
-      ? t('studio.floorState.workingQueued', { count: summary.count, queued: summary.queued })
-      : t('studio.floorState.working', { count: summary.count })
-  }
-  if (summary.kind === 'queued') return t('studio.floorState.queued', { count: summary.count })
-  return t(`studio.floorState.${summary.kind}` as MessageKey)
-}
-
-/** The app's colour mode, accent and motion preference, as the shell sets them. */
-function useShellLook(): { dark: boolean; reducedMotion: boolean; accent: string } {
-  const read = useCallback(() => {
-    const shell = document.querySelector<HTMLElement>('[data-color-mode]')
-    const accent = shell ? getComputedStyle(shell).getPropertyValue('--accent').trim() : ''
-    const systemReduced = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    return {
-      dark: shell?.getAttribute('data-color-mode') !== 'light',
-      reducedMotion: systemReduced || shell?.getAttribute('data-reduced-motion') === 'true',
-      accent: /^#[0-9a-f]{6}$/i.test(accent) ? accent : '#4b8fe6',
-    }
-  }, [])
-  const [look, setLook] = useState(read)
-  useEffect(() => {
-    const shell = document.querySelector('[data-color-mode]')
-    if (!shell) return undefined
-    const observer = new MutationObserver(() => {
-      const next = read()
-      setLook((current) => (current.dark === next.dark && current.reducedMotion === next.reducedMotion && current.accent === next.accent ? current : next))
-    })
-    observer.observe(shell, { attributes: true, attributeFilter: ['data-color-mode', 'data-reduced-motion', 'data-palette'] })
-    return () => observer.disconnect()
-  }, [read])
-  return look
-}
-
-export function StudioRoute({ state, onOpenRun, onOpenAgent, onOpenSession }: {
+interface StudioProps {
   state: WorkbenchState
+  client?: WorkbenchBridgeClient
   onOpenRun?: (runId: string) => void
   onOpenAgent?: () => void
   onOpenSession?: (workspace: string, sessionId: string) => void
+  /** Opens another page of the window (knowledge, schedules, changes, settings…). */
+  onOpenRoute?: (route: string) => void
+}
+
+/** The place last shown, for the next time the page opens. */
+let lastPlace: PlaceId = 'studio'
+
+/**
+ * The studio page: the studio itself (one room, or the building of the conversations whose teams
+ * are at work), and the campus around it with its other places.
+ */
+export function StudioRoute(props: StudioProps) {
+  const { t } = useOptionalI18n()
+  const [place, setPlaceState] = useState<PlaceId>(lastPlace)
+  const setPlace = useCallback((next: PlaceId) => {
+    lastPlace = next
+    setPlaceState(next)
+  }, [])
+  const toCampus = place === 'campus' ? null : (
+    <button type="button" className="icon-button studio-campus-button" aria-label={t('places.campus.go')} title={t('places.campus.go')} onClick={() => setPlace('campus')}><MapIcon size={15} /></button>
+  )
+  if (place === 'studio') return <StudioRoom {...props} nav={toCampus} />
+  return <PlacePage {...props} place={place} nav={toCampus} onPlace={setPlace} />
+}
+
+function PlacePage({ place, nav, onPlace, state, client, onOpenAgent, onOpenRoute, onOpenRun }: StudioProps & {
+  place: Exclude<PlaceId, 'studio'>
+  nav: ReactNode
+  onPlace: (place: PlaceId) => void
 }) {
+  const { t } = useOptionalI18n()
+  const look = useShellLook()
+  const [paused, setPaused] = useState(false)
+  // Counts the presses of Reset view.
+  const [resets, setResets] = useState(0)
+  const [ready, setReady] = useState(false)
+  return (
+    <main className="route-column reading-surface studio-route place-route" aria-label={t(`places.${place}.title` as MessageKey)}>
+      <header className="route-header studio-header">
+        <div>
+          <p className="section-kicker">{place === 'campus' ? t('studio.title') : t('places.campus.title')}</p>
+          <h1 tabIndex={-1}>{t(`places.${place}.title` as MessageKey)}</h1>
+          <p className="studio-description">{t(`places.${place}.description` as MessageKey)}</p>
+        </div>
+        <div className="studio-actions">
+          {nav}
+          <button type="button" className="icon-button" aria-label={t('studio.reset')} title={t('studio.reset')} disabled={!ready} onClick={() => setResets((value) => value + 1)}><RotateCcw size={15} /></button>
+          <button type="button" className="icon-button" aria-pressed={paused} aria-label={t(paused ? 'studio.resume' : 'studio.pause')}
+            title={t(paused ? 'studio.resume' : 'studio.pause')} disabled={!ready} onClick={() => setPaused((value) => !value)}>
+            {paused ? <Play size={15} /> : <Pause size={15} />}
+          </button>
+        </div>
+      </header>
+      <PlaceView key={place} place={place} state={state} client={client} look={look} paused={paused} resets={resets}
+        onPlace={onPlace} onOpenRoute={onOpenRoute} onOpenAgent={onOpenAgent} onOpenRun={onOpenRun} onReady={(value) => setReady(value === true)} />
+    </main>
+  )
+}
+
+function StudioRoom({ state, onOpenRun, onOpenAgent, onOpenSession, nav }: StudioProps & { nav?: ReactNode }) {
   const { t, locale } = useOptionalI18n()
   const team = useTeamSettings()
   const look = useShellLook()
@@ -79,7 +96,7 @@ export function StudioRoute({ state, onOpenRun, onOpenAgent, onOpenSession }: {
   /** The floor up close while the building is shown; null is the whole building. */
   const [focus, setFocus] = useState<string | null>(null)
 
-  const names = { lead: t('studio.lead'), expert: (id: string) => libraryName(id, locale) ?? id }
+  const names = { lead: t('studio.lead'), expert: (id: string) => libraryName(id, locale) ?? id, helper: t('studio.helper') }
   // Each conversation seen with its team at work while the studio is open keeps a floor;
   // with two or more the studio is an office building.
   const order = useRef<string[]>([])
@@ -88,17 +105,9 @@ export function StudioRoute({ state, onOpenRun, onOpenAgent, onOpenSession }: {
   const selectedId = typeof state.selectedSession?.id === 'string' ? state.selectedSession.id : null
   const workspaces = new Map<string, string | null>()
   const floors: StudioFloorView[] = building
-    ? studioFloors(state, team, names, order.current).map((floor, index): StudioFloorView => {
-      const summary = floorSummary(floor.cast)
-      workspaces.set(floor.sessionId, floor.workspace)
-      return {
-        id: floor.sessionId,
-        number: t('studio.floor', { floor: index + 1 }),
-        title: floor.title ?? t('workbench.untitledSession'),
-        summary: summaryText(summary, t),
-        busy: summary.kind !== 'done' && summary.kind !== 'idle',
-        cast: floor.cast.map((actor) => actorView(actor, t)),
-      }
+    ? buildingFloors(state, team, names, order.current, t).map(({ workspace, ...floor }) => {
+      workspaces.set(floor.id, workspace)
+      return floor
     })
     : [{ id: selectedId ?? 'studio', number: '', title: '', summary: '', busy: false, cast: studioCast(state, team, names).map((actor) => actorView(actor, t)) }]
   const inView = building ? (floors.find((floor) => floor.id === focus) ?? null) : floors[0]!
@@ -180,6 +189,7 @@ export function StudioRoute({ state, onOpenRun, onOpenAgent, onOpenSession }: {
           <p className="studio-description">{description}</p>
         </div>
         <div className="studio-actions">
+          {nav}
           {building ? (
             <button type="button" className="icon-button" aria-pressed={overview} aria-label={t('studio.building')} title={t('studio.building')}
               disabled={!ready || overview} onClick={() => setFocus(null)}><Building2 size={15} /></button>

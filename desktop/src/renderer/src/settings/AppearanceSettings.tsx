@@ -4,6 +4,7 @@ import {
   APPEARANCE_PALETTES,
   type AppearancePalette,
   type AppearanceState,
+  type Backdrop,
   type ColorMode,
 } from '../design/appearance'
 import type { AppearanceMode } from '../../../shared/appearance'
@@ -21,6 +22,11 @@ const MATERIALS: readonly { value: AppearanceMode; label: MessageKey }[] = [
   { value: 'liquid', label: 'settings.appearance.material.liquid' },
   { value: 'mica', label: 'settings.appearance.material.mica' },
   { value: 'solid', label: 'settings.appearance.material.solid' },
+]
+
+const BACKDROP_CHOICES: readonly { value: Backdrop; label: MessageKey }[] = [
+  { value: 'studio', label: 'settings.appearance.backdrop.studio' },
+  { value: 'field', label: 'settings.appearance.backdrop.field' },
 ]
 
 const COLOR_CHOICES: readonly { value: ColorMode; label: MessageKey }[] = [
@@ -71,6 +77,31 @@ function AppearanceSettingsView({
               {t(choice.label)}
             </button>
           ))}
+        </div>
+      </div>
+
+      <div className="settings-row">
+        <div className="setting-label">
+          <strong>{t('settings.appearance.backdrop')}</strong>
+          <span>{t('settings.appearance.backdropDescription')}</span>
+        </div>
+        <div className="segmented-control" role="radiogroup" aria-label={t('settings.appearance.backdrop')}>
+          {BACKDROP_CHOICES.map((choice) => {
+            const selected = (appearance.backdrop ?? 'studio') === choice.value
+            return (
+              <button
+                key={choice.value}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                className={selected ? 'is-selected' : undefined}
+                disabled={appearance.mode !== 'liquid' || appearance.highContrast || appearance.transparentDesktop}
+                onClick={() => update({ backdrop: choice.value })}
+              >
+                {t(choice.label)}
+              </button>
+            )
+          })}
         </div>
       </div>
 

@@ -19,8 +19,13 @@ This summary lists the components the Windows release ships; it does not replace
   editor's [CodeMirror](https://github.com/codemirror/dev) packages and
   [Lezer highlight](https://github.com/lezer-parser/highlight) (MIT), its visual editor's
   [ProseMirror](https://github.com/ProseMirror) packages (MIT, Copyright Marijn Haverbeke and
-  others), [PDF.js](https://github.com/mozilla/pdf.js) (`pdfjs-dist`, Apache-2.0), and the studio's
-  [three.js](https://github.com/mrdoob/three.js) (MIT, Copyright 2010-2026 three.js authors).
+  others), [PDF.js](https://github.com/mozilla/pdf.js) (`pdfjs-dist`, Apache-2.0), the studio's
+  [three.js](https://github.com/mrdoob/three.js) (MIT, Copyright 2010-2026 three.js authors), and
+  answers' diagrams with [Mermaid](https://github.com/mermaid-js/mermaid) (MIT, Copyright Knut
+  Sveidqvist) and the packages it draws with, among them
+  [D3](https://github.com/d3/d3) (ISC), [Cytoscape.js](https://github.com/cytoscape/cytoscape.js)
+  (MIT), [dagre](https://github.com/dagrejs/dagre) (MIT) and
+  [DOMPurify](https://github.com/cure53/DOMPurify) (Apache-2.0 or MPL-2.0).
 
 ## Code adapted from other projects
 

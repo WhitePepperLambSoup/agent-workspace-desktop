@@ -30,6 +30,8 @@ _LOCATION_KEYS = ("source", "destination", "repository", "cwd", "path")
 # Process tools whose command the model does not write: run_checks runs the commands the user
 # set up for the folder.
 _FIXED_COMMAND_PROCESS_TOOLS = frozenset({"speak_text", "add_calendar_event", "run_checks"})
+# What outlasts the turn and comes back as context later: refused in a distrusted session.
+_LASTING_TOOLS = frozenset({"knowledge_add", "memory_write"})
 
 
 type ApprovalValue = ApprovalResult | bool
@@ -142,7 +144,20 @@ class WorkspacePolicy:
         self._grant_store_path = Path(grant_store_path) if grant_store_path is not None else None
         self._clock = clock
         self._session_grant_expiry: dict[tuple[str, str], float] = {}
+        self._distrusted_sessions: set[str] = set()
         self._load_session_grants()
+
+    def distrust_session(self, session_id: str) -> None:
+        """Outside content talked to the agent: the session's grants go, and until its next turn
+        every step asks, whatever the autonomy, and nothing lasting is written."""
+        self._distrusted_sessions.add(session_id)
+        self.revoke_session_grant(session_id)
+
+    def trust_session_again(self, session_id: str) -> None:
+        self._distrusted_sessions.discard(session_id)
+
+    def session_distrusted(self, session_id: str | None) -> bool:
+        return session_id in self._distrusted_sessions
 
     async def authorize(
         self,
@@ -174,6 +189,14 @@ class WorkspacePolicy:
                 frozenset(granted_tools),
             )
         effect = self._effect_kind(tool.side_effect)
+        distrusted = session_id in self._distrusted_sessions
+        if distrusted:
+            if effect == "memory_write" or tool.name in _LASTING_TOOLS:
+                return ApprovalResult(
+                    False,
+                    "outside content in this turn talked to the agent; nothing lasting is written",
+                )
+            effective_autonomy = Autonomy.ASK
         if effect == "session_state":
             effect = "read_state" if arguments.get("action") == "list" else "write_state"
         elif tool.name == "browser":
@@ -297,7 +320,10 @@ class WorkspacePolicy:
 
         grant_key = (
             (session_id, tool.name)
-            if session_id and not sensitive_path and (not file_effect or location is True)
+            if session_id
+            and not distrusted
+            and not sensitive_path
+            and (not file_effect or location is True)
             else None
         )
         if effect in {

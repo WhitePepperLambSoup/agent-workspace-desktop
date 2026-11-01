@@ -1,0 +1,242 @@
+.setup-guide {
+  width: min(560px, 100%);
+  margin: auto;
+  padding: 16px 20px;
+  display: grid;
+  gap: 12px;
+  color: var(--text);
+}
+
+.setup-guide header h1 {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.setup-guide header p,
+.setup-text {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.setup-step {
+  padding: 14px 16px;
+  display: grid;
+  gap: 12px;
+  border-radius: 12px;
+  background: var(--surface-fill);
+  box-shadow: inset 0 0 0 1px var(--pane-divider);
+}
+
+.setup-step[data-done="true"] {
+  padding-block: 10px;
+}
+
+.setup-step h2 {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.setup-step[data-done="true"] h2 {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.setup-step[data-done="true"] h2 svg {
+  color: var(--accent);
+}
+
+.setup-step-number {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-contrast, #fff);
+  font-size: 12px;
+}
+
+.setup-form {
+  display: grid;
+  gap: 10px;
+}
+
+.setup-field {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.setup-field-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.setup-field-title a {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.setup-field :is(input, select) {
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--control-fill);
+  box-shadow: inset 0 0 0 1px var(--control-border);
+  color: var(--text);
+  font: inherit;
+}
+
+.setup-field select option,
+.setup-field select optgroup {
+  background: var(--surface-base, #1a1d24);
+  color: var(--text);
+}
+
+.setup-field small {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.setup-error {
+  margin: 0;
+  color: var(--danger, #e5484d);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.provider-actions.setup-actions {
+  gap: 8px;
+}
+
+.provider-actions.setup-actions button {
+  min-height: 32px;
+  padding-inline: 12px;
+  font-size: 13px;
+}
+
+.data-backups {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+
+.data-backups li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.data-backups small {
+  color: var(--text-muted);
+}
+
+.database-recovery {
+  width: min(560px, calc(100% - 40px));
+  margin: 16px auto;
+  padding: 16px;
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  border-radius: 12px;
+  background: var(--surface-fill);
+  box-shadow: inset 0 0 0 1px var(--pane-divider);
+}
+
+.database-recovery h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+}
+
+.database-recovery p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.settings-index {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  padding: 8px 2px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface-base, var(--reading));
+  border-bottom: 1px solid var(--divider);
+}
+
+.settings-index-search {
+  min-width: 180px;
+  flex: 1;
+  height: 30px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 7px;
+  background: var(--control-fill);
+  box-shadow: inset 0 0 0 1px var(--control-border);
+  color: var(--text-muted);
+}
+
+.settings-index-search input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.settings-index select {
+  height: 30px;
+  max-width: 220px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--control-fill);
+  box-shadow: inset 0 0 0 1px var(--control-border);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.settings-index select option {
+  background: var(--surface-base, #1a1d24);
+  color: var(--text);
+}
+
+.settings-index-empty {
+  flex-basis: 100%;
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.settings-route-content > section[hidden] {
+  display: none;
+}

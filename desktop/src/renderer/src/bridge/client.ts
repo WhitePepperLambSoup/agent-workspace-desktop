@@ -3,6 +3,8 @@ import type { Autonomy, JsonValue } from '../../../shared/protocol'
 import { createWorkbenchStore, type WorkbenchStore } from '../state/workbench-store'
 import { ComposerDraftStore } from '../state/composer-drafts'
 
+const RESYNC_RETRY_MS = 2000
+
 export class GatewayCommandError extends Error {
   readonly name = 'GatewayCommandError'
 
@@ -26,13 +28,15 @@ export class WorkbenchBridgeClient {
   private workspaceSessionSwitch: Promise<void> = Promise.resolve()
   private workspaceSessionSwitchGeneration = 0
 
+  private resyncTimer: ReturnType<typeof setTimeout> | null = null
+
   // The terminal panel's output: many small events, handed to the panel without the store.
   private readonly shellListeners = new Set<(event: UiEvent) => void>()
   // The debugger's state and output, for the debug panel.
   private readonly debugListeners = new Set<(event: UiEvent) => void>()
 
   constructor(private readonly api: AgentWorkspaceApi) {
-    this.store = createWorkbenchStore({ requestResync: () => void this.bootstrap() })
+    this.store = createWorkbenchStore({ requestResync: () => this.resync() })
   }
 
   onDebugEvent(listener: (event: UiEvent) => void): () => void {
@@ -91,6 +95,10 @@ export class WorkbenchBridgeClient {
     if (this.sessionActivationRetryTimer !== null) {
       clearTimeout(this.sessionActivationRetryTimer)
       this.sessionActivationRetryTimer = null
+    }
+    if (this.resyncTimer !== null) {
+      clearTimeout(this.resyncTimer)
+      this.resyncTimer = null
     }
   }
 
@@ -393,6 +401,33 @@ export class WorkbenchBridgeClient {
     return this.invoke({ type: 'limits.set', payload: { maxCostUsd: input.maxCostUsd, maxTokens: input.maxTokens }, sessionId: null })
   }
 
+  /** The model sub-agents run on and their thinking effort; null parts follow the conversation. */
+  async dataStatus(): Promise<UiResponse> {
+    return this.invoke({ type: 'data.status', payload: {}, sessionId: null })
+  }
+
+  async backupNow(): Promise<UiResponse> {
+    return this.invoke({ type: 'data.backup', payload: {}, sessionId: null })
+  }
+
+  /** The next start puts this backup back; the app should start again now. */
+  async restoreBackup(name: string): Promise<UiResponse> {
+    return this.invoke({ type: 'data.restore', payload: { name }, sessionId: null })
+  }
+
+  /** The next start sets the damaged database aside and begins an empty one. */
+  async startFresh(): Promise<UiResponse> {
+    return this.invoke({ type: 'data.fresh_start', payload: {}, sessionId: null })
+  }
+
+  async subagentModel(): Promise<UiResponse> {
+    return this.invoke({ type: 'subagents.model.get', payload: {}, sessionId: null })
+  }
+
+  async setSubagentModel(input: { providerId: string | null; model: string | null; effort: string | null }): Promise<UiResponse> {
+    return this.invoke({ type: 'subagents.model.set', payload: { providerId: input.providerId, model: input.model, effort: input.effort }, sessionId: null })
+  }
+
   async listSkills(): Promise<UiResponse> {
     return this.invoke({ type: 'skills.list', payload: {}, sessionId: null })
   }
@@ -427,6 +462,16 @@ export class WorkbenchBridgeClient {
 
   async getSessionUsage(sessionId: string): Promise<UiResponse> {
     return this.invoke({ type: 'session.usage', payload: { sessionId }, sessionId: null })
+  }
+
+  /** A conversation's turns, and one of them (the newest finished by default) step by step. */
+  async getSessionReplay(sessionId: string, turnId?: string): Promise<UiResponse> {
+    return this.invoke({ type: 'session.replay', payload: turnId ? { sessionId, turnId } : { sessionId }, sessionId: null })
+  }
+
+  /** What each conversation has cost, with the sub-agents and experts it delegated to. */
+  async getConversationsUsage(sessionIds: readonly string[]): Promise<UiResponse> {
+    return this.invoke({ type: 'usage.conversations', payload: { sessionIds: [...sessionIds] }, sessionId: null })
   }
 
   async searchSessions(query: string, limit = 20): Promise<UiResponse> {
@@ -1570,6 +1615,19 @@ export class WorkbenchBridgeClient {
     })
   }
 
+  /** Services conversations send to without asking; the sensitive still ask. */
+  async trustedProviders(): Promise<UiResponse> {
+    return this.invoke({ type: 'provider.trust.list', payload: {}, sessionId: null })
+  }
+
+  async trustProvider(endpoint: string): Promise<UiResponse> {
+    return this.invoke({ type: 'provider.trust.add', payload: { endpoint }, sessionId: null })
+  }
+
+  async distrustProvider(origin: string): Promise<UiResponse> {
+    return this.invoke({ type: 'provider.trust.remove', payload: { origin }, sessionId: null })
+  }
+
   async bootstrapProvider(providerId?: string): Promise<UiResponse> {
     return this.invoke({
       type: 'provider.bootstrap',
@@ -1799,6 +1857,25 @@ export class WorkbenchBridgeClient {
   private get selectedSessionId(): string | null {
     const id = this.store.getState().selectedSession?.id
     return typeof id === 'string' ? id : null
+  }
+
+  /**
+   * Reads the state again after a lost message. If that fails too it tries again, or the window
+   * would stay frozen with nothing left to thaw it.
+   */
+  private resync(): void {
+    void this.bootstrap().catch(() => {
+      if (this.resyncTimer !== null) return
+      this.resyncTimer = setTimeout(() => {
+        this.resyncTimer = null
+        if (this.store.getState().runtime.stale) this.resync()
+      }, RESYNC_RETRY_MS)
+    })
+  }
+
+  /** Reads the whole state again, after a change the events do not carry. */
+  async refreshState(): Promise<void> {
+    await this.bootstrap()
   }
 
   private bootstrap(): Promise<void> {

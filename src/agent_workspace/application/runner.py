@@ -136,6 +136,22 @@ _EMPTY_OUTPUT_CONTINUATION_PROMPT = (
 _MAX_OUTPUT_LIMIT_CONTINUATIONS = 32
 _MAX_EMPTY_OUTPUT_CONTINUATIONS = 3
 _MAX_STREAM_RECOVERIES = 3
+_STREAM_RECOVERY_DELAYS_ENV = "AGENT_WORKSPACE_STREAM_RECOVERY_DELAYS"
+
+
+def _stream_recovery_delays() -> tuple[float, ...]:
+    """Seconds to wait before each new try after an interrupted model stream, when set (the desktop
+    app sets them; a task there may run for hours). Otherwise a turn has _MAX_STREAM_RECOVERIES
+    tries in all, one right after the other."""
+    delays: list[float] = []
+    for part in os.environ.get(_STREAM_RECOVERY_DELAYS_ENV, "").split(","):
+        try:
+            delays.append(max(0.0, float(part)))
+        except ValueError:
+            continue
+    return tuple(delays)
+
+
 # Ceiling for a tool that asks for more than the task's per-tool time, e.g. a long install.
 _MAX_DECLARED_TOOL_SECONDS = 3600.0
 _TOKEN_ESTIMATE_BYTES = 3
@@ -412,6 +428,8 @@ class AgentRunner:
         output_limit_continuations = 0
         empty_output_continuations = 0
         stream_recoveries = 0
+        recovery_delays = _stream_recovery_delays()
+        recovery_limit = len(recovery_delays) or _MAX_STREAM_RECOVERIES
         recovered_answer_parts: list[str] = []
         limited_answer_parts: list[str] = []
         assembled_request_ids: list[str] = []
@@ -1132,7 +1150,7 @@ class AgentRunner:
                     # entire turn would strand a long-running task.  Persist the
                     # confirmed prefix, then ask the provider to continue from that
                     # durable boundary with a bounded recovery budget.
-                    if exc.retryable and stream_recoveries < _MAX_STREAM_RECOVERIES:
+                    if exc.retryable and stream_recoveries < recovery_limit:
                         stream_recoveries += 1
                         partial_text = "".join(text_parts)
                         partial_reasoning = "".join(reasoning_parts)
@@ -1147,7 +1165,7 @@ class AgentRunner:
                                     "provider": self._provider.id,
                                     "model": model,
                                     "attempt": stream_recoveries,
-                                    "max_attempts": _MAX_STREAM_RECOVERIES,
+                                    "max_attempts": recovery_limit,
                                     "retryable": True,
                                     "status_code": exc.status_code,
                                     "partial_text_bytes": len(partial_text.encode("utf-8")),
@@ -1217,6 +1235,10 @@ class AgentRunner:
                                 trust=ContentTrust.DERIVED,
                             )
                         )
+                        # The network may be gone for a while: wait longer each time. A rejected
+                        # tool call is the model's to redo, at once.
+                        if recovery_delays and not repair_incomplete_call:
+                            await asyncio.sleep(recovery_delays[stream_recoveries - 1])
                         await self._record(
                             Event(
                                 session_id=session.id,
@@ -1244,6 +1266,9 @@ class AgentRunner:
                     await flush_deltas()
                     raise
                 await flush_deltas()
+                if recovery_delays:
+                    # A model call went through: the next outage of a long task starts afresh.
+                    stream_recoveries = 0
                 if not finish_seen or finish_reason is None:
                     raise ProviderCompletionError("provider stream ended without a finish marker")
                 tool_call_ids = [call.id for call in tool_calls]

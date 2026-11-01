@@ -13,13 +13,18 @@ import { parseRuns, parseSchedules, type ScheduleRunView, type ScheduleView } fr
 import { jobsFromPayload } from '../../state/projection-parsers'
 import type { BackgroundJobSummary, WorkbenchState } from '../../state/workbench-types'
 import { turnRunning } from '../cast'
-import { busyTeams } from '../floors'
+import { busyTeams, sessionInfo } from '../floors'
 import type { StudioOptions } from '../scene'
 import type { CampusModel, CampusPlace } from './campus'
 import { libraryName } from '../../team/catalog'
 import { activityKind } from '../../team/activity'
+import { useTeamSettings } from '../../team/team-settings'
 import { lookFor } from '../cast'
-import { deskModel, dutyModel, libraryModel, serverModel, siteModel, visitorsOf, type PlaceId } from './models'
+import { controlView, stationCosts } from './control-view'
+import { ControlPanel } from './ControlPanel'
+import { PlacePanel } from './PlacePanel'
+import { whileShown } from './while-shown'
+import { controlModel, controlSessions, deskModel, dutyModel, libraryModel, noteAtWork, serverModel, siteModel, stationOrder, visitorsOf, type PlaceId, type StationCost } from './models'
 import type { PlaceBuilder, PlaceScene } from './stage'
 import type { PlaceInput, PlaceVisitorView } from './types'
 
@@ -48,16 +53,46 @@ const NEEDS: Record<Shown, ReadonlyArray<keyof PlaceData>> = {
   servers: ['hosts', 'jobs'],
   duty: ['schedules', 'runs'],
   desk: ['link'],
+  control: ['jobs'],
 }
 /** The site reads this much of the folder: more does not fit in one reply for a large repository. */
 const SITE_DEPTH = 6
 const SITE_FILES = 1500
 /** How often a place asks again while it is open. */
-const EVERY: Record<Shown, number> = { campus: 15_000, library: 4_000, site: 8_000, servers: 5_000, duty: 10_000, desk: 4_000 }
+const EVERY: Record<Shown, number> = { campus: 15_000, library: 4_000, site: 8_000, servers: 5_000, duty: 10_000, desk: 4_000, control: 5_000 }
+/** How often the control room asks what its conversations have cost. */
+const COSTS_EVERY = 15_000
 
-/** Asks the sidecar for what the place shows, now and then while it is open; failures keep what was there. */
-function usePlaceData(client: WorkbenchBridgeClient | undefined, place: Shown, turn: boolean): PlaceData {
+/** What each of these conversations has cost so far, asked now and then; failures keep what was known. */
+function useStationCosts(client: WorkbenchBridgeClient | undefined, sessionIds: readonly string[]): Map<string, StationCost> {
+  const [costs, setCosts] = useState<Map<string, StationCost>>(() => new Map())
+  const key = [...sessionIds].sort().join('\n')
+  useEffect(() => {
+    if (!client || !key || typeof client.getConversationsUsage !== 'function') return undefined
+    let alive = true
+    const load = (): void => {
+      void client.getConversationsUsage(key.split('\n'))
+        .then((response) => { if (alive) setCosts(stationCosts(response.payload as Record<string, JsonValue>)) })
+        .catch(() => undefined)
+    }
+    load()
+    const stop = whileShown(load, COSTS_EVERY)
+    return () => {
+      alive = false
+      stop()
+    }
+  }, [client, key])
+  return costs
+}
+
+/**
+ * Asks the sidecar for what the place shows, now and then while it is open; failures keep what
+ * was there. The second value asks again at once (after something was done in the place).
+ */
+function usePlaceData(client: WorkbenchBridgeClient | undefined, place: Shown, turn: boolean): [PlaceData, () => void] {
   const [data, setData] = useState<PlaceData>(EMPTY)
+  const [asked, setAsked] = useState(0)
+  const refresh = useCallback(() => setAsked((count) => count + 1), [])
   const patch = useCallback((next: Partial<PlaceData>) => setData((current) => ({ ...current, ...next })), [])
   useEffect(() => {
     if (!client) return undefined
@@ -103,13 +138,13 @@ function usePlaceData(client: WorkbenchBridgeClient | undefined, place: Shown, t
       }
     }
     void load(true)
-    const timer = window.setInterval(() => void load(false), EVERY[place])
+    const stop = whileShown(() => void load(false), EVERY[place])
     return () => {
       alive = false
-      window.clearInterval(timer)
+      stop()
       window.clearTimeout(retry)
     }
-  }, [client, patch, place])
+  }, [asked, client, patch, place])
   // A turn that ends may have changed the folder's files.
   const wasTurn = useRef(turn)
   useEffect(() => {
@@ -118,7 +153,7 @@ function usePlaceData(client: WorkbenchBridgeClient | undefined, place: Shown, t
     if (turn || !NEEDS[place].includes('files')) return
     void client.getWorkspaceFilesTree('', SITE_DEPTH, SITE_FILES).then((response) => patch({ files: ((response.payload as Record<string, unknown>).files as WorkspaceFileItem[]) ?? [] })).catch(() => undefined)
   }, [client, patch, place, turn])
-  return data
+  return [data, refresh]
 }
 
 type Translate = I18nValue['t']
@@ -138,6 +173,8 @@ export function campusModel(state: WorkbenchState, data: PlaceData, t: Translate
   const nextTime = next ? new Date(next.at) : null
   const online = desk.phones.filter((phone) => phone.online).length
   const jobsRunning = servers.racks.reduce((total, rack) => total + rack.running, 0)
+  const control = controlModel(state, controlSessions(state, now), new Map(), data.jobs, now, (sessionId) => sessionInfo(state, sessionId))
+  const atWork = control.stations.filter((station) => station.state !== 'done' && station.state !== 'stopped').length
   const spots: Record<CampusPlace, CampusModel['spots'][CampusPlace]> = {
     studio: {
       busy: teams > 0 || working,
@@ -171,18 +208,24 @@ export function campusModel(state: WorkbenchState, data: PlaceData, t: Translate
       alert: desk.error,
       detail: data.link === null ? '' : desk.enabled ? t('places.desk.summary', { online, count: desk.phones.length }) : t('places.desk.closed'),
     },
+    control: {
+      busy: atWork > 0,
+      alert: control.stations.some((station) => station.state === 'approval' || station.state === 'failed' || station.state === 'quiet'),
+      detail: control.approvals > 0 ? t('places.control.waiting', { count: control.approvals })
+        : atWork > 0 ? t('places.control.summary', { count: atWork }) : t('places.control.summaryNone'),
+    },
   }
   return { spots, floors: Math.max(1, teams) }
 }
 
-const BUILDERS: Record<Shown, string> = { campus: 'buildCampus', library: 'buildLibrary', site: 'buildSite', servers: 'buildServers', duty: 'buildDuty', desk: 'buildDesk' }
+const BUILDERS: Record<Shown, string> = { campus: 'buildCampus', library: 'buildLibrary', site: 'buildSite', servers: 'buildServers', duty: 'buildDuty', desk: 'buildDesk', control: 'buildControl' }
 
 /**
  * One place of the campus, or the campus itself: its 3D, and below it a list of what is in it for
  * keyboards and screen readers. Picks open what was clicked: a page of the window, a file, the
  * conversation, or (on the campus) a place.
  */
-export function PlaceView({ place, state, client, look, paused, resets = 0, onPlace, onOpenRoute, onOpenAgent, onOpenRun, onReady }: {
+export function PlaceView({ place, state, client, look, paused, resets = 0, onPlace, onOpenRoute, onOpenAgent, onOpenRun, onOpenSession, onReady }: {
   place: Shown
   state: WorkbenchState
   client?: WorkbenchBridgeClient
@@ -195,13 +238,16 @@ export function PlaceView({ place, state, client, look, paused, resets = 0, onPl
   onOpenAgent?: () => void
   /** An expert's task, from someone working in the place. */
   onOpenRun?: (runId: string) => void
+  /** Another conversation, from its console in the control room. */
+  onOpenSession?: (workspace: string, sessionId: string) => void
   /** The scene is drawn (true), or could not be (null). */
   onReady?: (ready: boolean | null) => void
 }) {
   const { t, locale } = useOptionalI18n()
+  const team = useTeamSettings()
   const selected = typeof state.selectedSession?.id === 'string' ? state.selectedSession.id : null
   const turn = turnRunning(state, selected)
-  const data = usePlaceData(client, place, turn)
+  const [data, refresh] = usePlaceData(client, place, turn)
   const stageRef = useRef<HTMLDivElement>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
   const sceneRef = useRef<PlaceScene<PlaceInput<unknown>> | null>(null)
@@ -215,13 +261,24 @@ export function PlaceView({ place, state, client, look, paused, resets = 0, onPl
     return () => window.clearInterval(timer)
   }, [])
 
+  // The control room: each conversation keeps its console while the room is open.
+  const order = useRef<string[]>([])
+  const recent = useRef(new Map<string, number>())
+  if (place === 'control') order.current = stationOrder(order.current, controlSessions(state, now, recent.current), (sessionId) => !turnRunning(state, sessionId))
+  const costs = useStationCosts(client, place === 'control' ? order.current : [])
+  const [focus, setFocus] = useState<string | null>(null)
+  const names = { lead: t('studio.lead'), expert: (id: string) => libraryName(id, locale) ?? id, helper: t('studio.helper') }
+  const control = place === 'control' ? controlModel(state, order.current, costs, data.jobs, now, (sessionId) => sessionInfo(state, sessionId)) : null
+  if (control) noteAtWork(recent.current, control.stations, Date.now())
+
   const translate = t as (key: MessageKey, values?: Record<string, string | number>) => string
   const model: unknown = place === 'campus' ? campusModel(state, data, t, now)
     : place === 'library' ? libraryModel(data.knowledge, data.works, state, t('knowledge.defaultBase'))
       : place === 'site' ? siteModel(data.files, data.diff, data.git, state)
         : place === 'servers' ? serverModel(data.hosts, data.ssh, data.jobs, state)
           : place === 'duty' ? dutyModel(data.schedules, data.runs, now)
-            : deskModel(data.link, state, now)
+            : control ? controlView(control, state, team, names, t, locale)
+              : deskModel(data.link, state, now)
   // Experts of any conversation's team whose work is here come in.
   const visitors: PlaceVisitorView[] = place === 'library' || place === 'site' || place === 'servers'
     ? visitorsOf(state, place).map((visitor) => ({
@@ -242,6 +299,7 @@ export function PlaceView({ place, state, client, look, paused, resets = 0, onPl
   const pick = useCallback((id: string) => {
     const { onPlace: go, onOpenRoute: open, onOpenAgent: agent, onOpenRun: run } = actions.current
     if (id === 'agent') agent?.()
+    else if (id.startsWith('station:')) setFocus(id.slice(8))
     else if (id.startsWith('run:')) run?.(id.slice(4))
     else if (id.startsWith('route:')) open?.(id.slice(6))
     else if (id.startsWith('file:')) requestEditor(id.slice(5))
@@ -295,13 +353,34 @@ export function PlaceView({ place, state, client, look, paused, resets = 0, onPl
     if (resets > 0) sceneRef.current?.resetView()
   }, [resets])
 
+  const stage = (
+    <div className="studio-stage place-stage" ref={stageRef} data-ready={ready ? 'true' : 'false'} data-place={place}>
+      <div className="studio-overlay" ref={overlayRef} aria-hidden="true" />
+      {unsupported ? <p className="studio-unsupported" role="status">{t('studio.unsupported')}</p> : null}
+      {ready ? <p className="studio-hint">{t(place === 'campus' ? 'places.campus.hint' : place === 'control' ? 'places.control.hint' : 'places.hint')}</p> : null}
+    </div>
+  )
+  if (control) {
+    return (
+      <div className="control-layout">
+        {stage}
+        <ControlPanel model={control} state={state} client={client} team={team} names={names} focus={focus} onFocus={setFocus}
+          onOpenSession={onOpenSession} onOpenAgent={onOpenAgent} onOpenRun={onOpenRun} onOpenRoute={onOpenRoute} />
+      </div>
+    )
+  }
+  // Where something can be done in the place, it is done beside it.
+  if (place === 'site' || place === 'servers' || place === 'library') {
+    return (
+      <div className="control-layout">
+        {stage}
+        <PlacePanel place={place} state={state} client={client} diff={data.diff} jobs={data.jobs} onRefresh={refresh} />
+      </div>
+    )
+  }
   return (
     <>
-      <div className="studio-stage place-stage" ref={stageRef} data-ready={ready ? 'true' : 'false'} data-place={place}>
-        <div className="studio-overlay" ref={overlayRef} aria-hidden="true" />
-        {unsupported ? <p className="studio-unsupported" role="status">{t('studio.unsupported')}</p> : null}
-        {ready ? <p className="studio-hint">{t(place === 'campus' ? 'places.campus.hint' : 'places.hint')}</p> : null}
-      </div>
+      {stage}
       <PlaceRoster place={place} model={model} t={t} onPick={pick} />
     </>
   )

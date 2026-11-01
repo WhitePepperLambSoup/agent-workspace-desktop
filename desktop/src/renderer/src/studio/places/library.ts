@@ -2,9 +2,10 @@ import * as THREE from 'three'
 
 import { lookFor } from '../cast'
 import type { Place } from '../layout'
-import { Batch, boxShape, cylinderShape } from '../mesh-kit'
+import { Batch, boxShape, cylinderShape, shapeDetail } from '../mesh-kit'
 import { FloorGrid } from '../paths'
 import { BOOKS_PER_CASE, LIBRARY_CASES, type BookKind, type LibraryBook, type LibraryModel } from './models'
+import { fineBookcase, fineCart, fineReadingTable, fineScanner } from './fine-places'
 import { ROOM_BOX, desk, disposeGeometry, floor, group, hashed, palette, plant, walls } from './kit'
 import type { CrowdActor, PlaceBuilder, PlaceLabel } from './stage'
 import type { PlaceInput } from './types'
@@ -48,22 +49,30 @@ export const buildLibrary: PlaceBuilder<PlaceInput<LibraryModel>> = (context) =>
   const slab = floor('wood', dark, ROOM_BOX, 3)
   root.add(slab.mesh)
 
+  const fine = shapeDetail() === 'high'
   const batch = new Batch()
   walls(batch, dark, { wall: dark ? '#4a4f5f' : '#efe6d8', low: dark ? '#3f4454' : '#e2d5c2' })
-  // Bookcases: sides, back, shelves and a crown.
-  for (let index = 0; index < LIBRARY_CASES; index += 1) {
-    const x = caseX(index)
-    for (const side of [-1, 1]) batch.add(boxShape(0.05, CASE_HEIGHT, CASE_DEPTH, 0.01), c.wood, { x: x + side * (CASE_WIDTH / 2), y: CASE_HEIGHT / 2, z: CASE_Z }, 'satin')
-    batch.add(boxShape(CASE_WIDTH, CASE_HEIGHT, 0.03), c.woodLight, { x, y: CASE_HEIGHT / 2, z: CASE_Z - CASE_DEPTH / 2 + 0.015 }, 'matte', false)
-    for (let level = 0; level <= LEVELS; level += 1) batch.add(boxShape(CASE_WIDTH, 0.035, CASE_DEPTH, 0.008), c.wood, { x, y: 0.06 + level * LEVEL_HEIGHT, z: CASE_Z }, 'satin')
-    batch.add(boxShape(CASE_WIDTH + 0.1, 0.08, CASE_DEPTH + 0.06, 0.02), c.wood, { x, y: CASE_HEIGHT + 0.04, z: CASE_Z }, 'satin')
-  }
-  // The papers' shelves on the left wall.
   const papersLength = PAPERS.z1 - PAPERS.z0
-  for (const z of [PAPERS.z0, PAPERS.z1]) batch.add(boxShape(0.42, CASE_HEIGHT, 0.05, 0.01), c.wood, { x: PAPERS.x, y: CASE_HEIGHT / 2, z }, 'satin')
-  for (let level = 0; level <= LEVELS; level += 1) batch.add(boxShape(0.42, 0.035, papersLength, 0.008), c.wood, { x: PAPERS.x, y: 0.06 + level * LEVEL_HEIGHT, z: (PAPERS.z0 + PAPERS.z1) / 2 }, 'satin')
+  if (fine) {
+    const size = { height: CASE_HEIGHT, depth: CASE_DEPTH, levels: LEVELS, levelHeight: LEVEL_HEIGHT }
+    for (let index = 0; index < LIBRARY_CASES; index += 1) fineBookcase(batch, c, { x: caseX(index), z: CASE_Z }, { ...size, width: CASE_WIDTH })
+    fineBookcase(batch, c, { x: PAPERS.x, z: (PAPERS.z0 + PAPERS.z1) / 2, ry: Math.PI / 2 }, { ...size, width: papersLength })
+    for (const table of TABLES) fineReadingTable(batch, c, table, dark)
+  } else {
+    // Bookcases: sides, back, shelves and a crown.
+    for (let index = 0; index < LIBRARY_CASES; index += 1) {
+      const x = caseX(index)
+      for (const side of [-1, 1]) batch.add(boxShape(0.05, CASE_HEIGHT, CASE_DEPTH, 0.01), c.wood, { x: x + side * (CASE_WIDTH / 2), y: CASE_HEIGHT / 2, z: CASE_Z }, 'satin')
+      batch.add(boxShape(CASE_WIDTH, CASE_HEIGHT, 0.03), c.woodLight, { x, y: CASE_HEIGHT / 2, z: CASE_Z - CASE_DEPTH / 2 + 0.015 }, 'matte', false)
+      for (let level = 0; level <= LEVELS; level += 1) batch.add(boxShape(CASE_WIDTH, 0.035, CASE_DEPTH, 0.008), c.wood, { x, y: 0.06 + level * LEVEL_HEIGHT, z: CASE_Z }, 'satin')
+      batch.add(boxShape(CASE_WIDTH + 0.1, 0.08, CASE_DEPTH + 0.06, 0.02), c.wood, { x, y: CASE_HEIGHT + 0.04, z: CASE_Z }, 'satin')
+    }
+    // The papers' shelves on the left wall.
+    for (const z of [PAPERS.z0, PAPERS.z1]) batch.add(boxShape(0.42, CASE_HEIGHT, 0.05, 0.01), c.wood, { x: PAPERS.x, y: CASE_HEIGHT / 2, z }, 'satin')
+    for (let level = 0; level <= LEVELS; level += 1) batch.add(boxShape(0.42, 0.035, papersLength, 0.008), c.wood, { x: PAPERS.x, y: 0.06 + level * LEVEL_HEIGHT, z: (PAPERS.z0 + PAPERS.z1) / 2 }, 'satin')
+  }
   // Reading tables with chairs on both long sides and green lamps.
-  for (const table of TABLES) {
+  for (const table of fine ? [] : TABLES) {
     batch.add(boxShape(2.4, 0.06, 0.95, 0.02), c.wood, { x: table.x, y: 0.72, z: table.z }, 'satin')
     for (const [dx, dz] of [[-1.1, -0.38], [1.1, -0.38], [-1.1, 0.38], [1.1, 0.38]] as const) batch.add(boxShape(0.07, 0.7, 0.07), c.woodLight, { x: table.x + dx, y: 0.35, z: table.z + dz }, 'satin')
     for (const dx of [-0.5, 0.5]) {
@@ -80,14 +89,19 @@ export const buildLibrary: PlaceBuilder<PlaceInput<LibraryModel>> = (context) =>
   }
   // The desk at the front, the cart and the scanner.
   const screenAt = desk(batch, dark, COUNTER.x, COUNTER.z, 1.8)
-  batch.add(boxShape(0.9, 0.05, 0.5, 0.01), c.metal, { x: CART.x, y: 0.75, z: CART.z }, 'metal')
-  batch.add(boxShape(0.9, 0.05, 0.5, 0.01), c.metal, { x: CART.x, y: 0.35, z: CART.z }, 'metal')
-  for (const [dx, dz] of [[-0.42, -0.22], [0.42, -0.22], [-0.42, 0.22], [0.42, 0.22]] as const) {
-    batch.add(boxShape(0.03, 0.75, 0.03), c.metal, { x: CART.x + dx, y: 0.42, z: CART.z + dz }, 'metal', false)
-    batch.add(cylinderShape(0.04, 0.04, 0.03, 10), '#2a2d35', { x: CART.x + dx, y: 0.04, z: CART.z + dz, rz: Math.PI / 2 }, 'satin', false)
+  if (fine) {
+    fineCart(batch, c, CART.x, CART.z)
+    fineScanner(batch, SCANNER.x, SCANNER.z, dark)
+  } else {
+    batch.add(boxShape(0.9, 0.05, 0.5, 0.01), c.metal, { x: CART.x, y: 0.75, z: CART.z }, 'metal')
+    batch.add(boxShape(0.9, 0.05, 0.5, 0.01), c.metal, { x: CART.x, y: 0.35, z: CART.z }, 'metal')
+    for (const [dx, dz] of [[-0.42, -0.22], [0.42, -0.22], [-0.42, 0.22], [0.42, 0.22]] as const) {
+      batch.add(boxShape(0.03, 0.75, 0.03), c.metal, { x: CART.x + dx, y: 0.42, z: CART.z + dz }, 'metal', false)
+      batch.add(cylinderShape(0.04, 0.04, 0.03, 10), '#2a2d35', { x: CART.x + dx, y: 0.04, z: CART.z + dz, rz: Math.PI / 2 }, 'satin', false)
+    }
+    batch.add(boxShape(0.7, 0.9, 0.6, 0.03), dark ? '#c9ccd2' : '#eef0f3', { x: SCANNER.x, y: 0.45, z: SCANNER.z }, 'satin')
+    batch.add(boxShape(0.62, 0.04, 0.5, 0.01), '#3a3f4b', { x: SCANNER.x, y: 0.92, z: SCANNER.z }, 'satin', false)
   }
-  batch.add(boxShape(0.7, 0.9, 0.6, 0.03), dark ? '#c9ccd2' : '#eef0f3', { x: SCANNER.x, y: 0.45, z: SCANNER.z }, 'satin')
-  batch.add(boxShape(0.62, 0.04, 0.5, 0.01), '#3a3f4b', { x: SCANNER.x, y: 0.92, z: SCANNER.z }, 'satin', false)
   plant(batch, dark, -5.4, 4.0, true)
   plant(batch, dark, 5.5, -2.9)
   root.add(group(batch, finishes))
@@ -97,6 +111,11 @@ export const buildLibrary: PlaceBuilder<PlaceInput<LibraryModel>> = (context) =>
   const capacity = LIBRARY_CASES * BOOKS_PER_CASE + 60 + 10
   const bookMaterial = new THREE.MeshStandardMaterial({ roughness: 0.8 })
   const books = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), bookMaterial, capacity)
+  // In high detail two gilt bands run across each spine.
+  const bandMaterial = new THREE.MeshStandardMaterial({ color: '#c9a95a', roughness: 0.45, metalness: 0.6 })
+  const bands = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), bandMaterial, fine ? capacity * 2 : 1)
+  bands.count = 0
+  root.add(bands)
   books.castShadow = true
   books.count = 0
   root.add(books)
@@ -138,9 +157,14 @@ export const buildLibrary: PlaceBuilder<PlaceInput<LibraryModel>> = (context) =>
     books.setColorAt(index, colour.set(colourOf))
   }
   const thickness = (book: LibraryBook): number => 0.045 + Math.min(0.06, Math.log2(1 + book.size) * 0.008)
+  const bandOf = (slot: number, x: number, y: number, z: number, width: number): void => {
+    matrix.compose(new THREE.Vector3(x, y, z), quaternion.identity(), new THREE.Vector3(width * 0.86, 0.008, 0.004))
+    bands.setMatrixAt(slot, matrix)
+  }
   const shelve = (model: LibraryModel): number => {
     let count = 0
     let marks = 0
+    let banded = 0
     model.cases.forEach((item, caseIndex) => {
       // The eye-level shelves fill first.
       let shelf = 0
@@ -159,6 +183,10 @@ export const buildLibrary: PlaceBuilder<PlaceInput<LibraryModel>> = (context) =>
         // What the latest search found stands out of the row, with a ribbon.
         const out = book.cited ? 0.08 : 0
         place(count++, cursor + width / 2, y, CASE_Z + 0.02 + out, width, height, 0.24, KIND_COLOURS[book.kind])
+        if (fine) {
+          bandOf(banded++, cursor + width / 2, y + height * 0.32, CASE_Z + 0.142 + out, width)
+          bandOf(banded++, cursor + width / 2, y + height * 0.24, CASE_Z + 0.142 + out, width)
+        }
         if (book.cited) {
           matrix.compose(new THREE.Vector3(cursor + width / 2, y + height / 2 + 0.03, CASE_Z + 0.14 + out), quaternion.identity(), new THREE.Vector3(Math.max(0.012, width * 0.4), 0.08, 0.01))
           ribbons.setMatrixAt(marks++, matrix)
@@ -186,6 +214,8 @@ export const buildLibrary: PlaceBuilder<PlaceInput<LibraryModel>> = (context) =>
     })
     books.count = count
     ribbons.count = marks
+    bands.count = banded
+    bands.instanceMatrix.needsUpdate = true
     books.instanceMatrix.needsUpdate = true
     if (books.instanceColor) books.instanceColor.needsUpdate = true
     ribbons.instanceMatrix.needsUpdate = true
@@ -296,8 +326,10 @@ export const buildLibrary: PlaceBuilder<PlaceInput<LibraryModel>> = (context) =>
     },
     dispose() {
       slab.dispose()
-      for (const child of [...root.children]) if (child !== books && child !== ribbons) disposeGeometry(child)
+      for (const child of [...root.children]) if (child !== books && child !== ribbons && child !== bands) disposeGeometry(child)
       books.geometry.dispose()
+      bands.geometry.dispose()
+      bandMaterial.dispose()
       ribbons.geometry.dispose()
       bookMaterial.dispose()
       ribbonMaterial.dispose()

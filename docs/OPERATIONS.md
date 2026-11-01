@@ -44,8 +44,12 @@ uv run agent-workspace sessions search "provider compatibility" --workspace . --
 ## Backups, restore and session archives
 
 The app makes a verified backup of its database once a day, in the background a minute after it
-starts (or later in the day, while it stays open). Backups can also be made, checked and restored
-by hand, and one session can be exported as a ZIP archive:
+starts (or later in the day, while it stays open). Settings → Data and backups shows them, makes
+one on request and restores one: the restore is checked at once and carried out at the next start,
+before the database is opened, and the database it replaces stays beside it with `before-restore`
+in its name. If the database is damaged, the conversation page offers the latest backup or an empty
+database, with the damaged file set aside. From the command line (a source checkout), backups can
+also be made, checked and restored, and one session can be exported as a ZIP archive:
 
 ```powershell
 $backup = uv run agent-workspace backups create --keep 10 --max-age-days 30
@@ -81,16 +85,17 @@ keep the whole data folder, not only `agent.db`.
 
 `main.log` is rotated at 1 MB; Settings → About & Updates → Open log folder opens the folder.
 Crash reports are never uploaded. A renderer crash reloads the window up to three times a minute
-before offering a restart.
+before offering a restart. An error in one part of the interface leaves the rest of the window
+working, and goes to `main.log`.
 
 ## Updates and signing
 
 Installed (NSIS) copies update from the GitHub releases of this repository: the release must
 carry the installer and the `latest.yml` electron-builder writes beside it. A different HTTPS
 folder can be set in Settings → About & Updates, or for every user with the
-`AGENT_WORKSPACE_UPDATE_URL` environment variable, which takes precedence. Checks happen only when
-asked, and an update downloads only after confirmation; the portable folder and development runs
-never update themselves.
+`AGENT_WORKSPACE_UPDATE_URL` environment variable, which takes precedence. The app checks once a day
+while it runs, unless that is turned off there, and an update downloads only after a click; the
+portable folder and development runs never update themselves.
 
 To sign the executable and installer, set `CSC_LINK` (a path or base64 of a `.pfx`) and
 `CSC_KEY_PASSWORD` before running electron-builder. Unsigned builds work but trigger SmartScreen.

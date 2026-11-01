@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 
+import { fishFor, type TankFish } from './aquarium'
 import type { StudioActor } from './cast'
 import {
   BOARD_PLACE,
@@ -21,7 +22,8 @@ import {
   type Place,
   type Point,
 } from './layout'
-import { Batch, boxShape, createFinishes, cylinderShape, disposeFinishes, dodecaShape, meshesOf, sphereShape } from './mesh-kit'
+import { GRAPHICS, HIGH_AMBIENT_SHARE, createDrawing, dressFinishes, releaseEnvironment, rimLight, type GraphicsQuality } from './graphics'
+import { Batch, boxShape, createFinishes, cylinderShape, disposeFinishes, dodecaShape, meshesOf, setShapeDetail, sphereShape } from './mesh-kit'
 import { FloorGrid } from './paths'
 import { Person, type Action } from './person'
 import { buildRoom, createRoomKit, type Room } from './props'
@@ -32,6 +34,8 @@ export interface StudioOptions {
   accent: string
   /** No scene without the GPU: drawn in software it would slow the whole window. */
   requireGpu?: boolean
+  /** The graphics setting; absent is standard. */
+  quality?: GraphicsQuality
 }
 
 /** An actor with the words the window shows for them. */
@@ -73,6 +77,8 @@ export interface StudioScene {
   /** Up close on a floor, or (null) out to the whole building. */
   focus(floorId: string | null): void
   setPaused(paused: boolean): void
+  /** The model at work: it decides what swims in the fish tank. */
+  setModel(model: string | null): void
   resetView(): void
   dispose(): void
 }
@@ -241,10 +247,31 @@ function actionFor(member: Member, place: Place): Action {
  * flies into a floor while the floors above lift away, and back out. Labels, speech bubbles and
  * floor signs are HTML laid over the canvas.
  */
+/**
+ * The label (a person's tag or a sign) shown at a point of the screen, the top one first. Labels let the
+ * pointer through to the view (studio.css), so a drag or the wheel that starts on one still turns or
+ * zooms it; a click there is matched here and clicks the label. A sign that leads nowhere is passed over.
+ */
+export function labelAt(overlay: HTMLElement, x: number, y: number): HTMLElement | null {
+  const labels = [...overlay.querySelectorAll<HTMLElement>('.studio-tag, .studio-floor-sign')]
+  for (let index = labels.length - 1; index >= 0; index--) {
+    const label = labels[index] as HTMLElement
+    if (label.dataset.pick === 'false') continue
+    const rect = label.getBoundingClientRect()
+    if (!rect.width || x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) continue
+    const style = getComputedStyle(label)
+    if (style.visibility !== 'hidden' && Number(style.opacity) >= 0.1) return label
+  }
+  return null
+}
+
 export function createStudioScene(stage: HTMLElement, overlay: HTMLElement, options: StudioOptions, handlers: StudioHandlers, initialMode: StudioMode = 'room'): StudioScene {
   let mode = initialMode
-  const pixelRatio = (): number => (mode === 'backdrop' ? BACKDROP_PIXELS : Math.min(window.devicePixelRatio || 1, 1.5))
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'low-power', failIfMajorPerformanceCaveat: options.requireGpu === true })
+  const quality = options.quality ?? 'standard'
+  const profile = GRAPHICS[quality]
+  setShapeDetail(quality)
+  const pixelRatio = (): number => (mode === 'backdrop' ? BACKDROP_PIXELS : Math.min(window.devicePixelRatio || 1, profile.maxPixelRatio))
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: profile.powerPreference, failIfMajorPerformanceCaveat: options.requireGpu === true })
   renderer.setPixelRatio(pixelRatio())
   renderer.shadowMap.enabled = true
   renderer.shadowMap.type = THREE.PCFShadowMap
@@ -267,20 +294,29 @@ export function createStudioScene(stage: HTMLElement, overlay: HTMLElement, opti
   controls.enabled = mode === 'room'
   stage.dataset.mode = mode
 
-  scene.add(new THREE.HemisphereLight(options.dark ? '#9fb0e0' : '#fff6ea', options.dark ? '#3a3040' : '#b8a48c', options.dark ? 1.35 : 1.5))
+  // In high quality the reflected room (graphics.ts) brings part of the sky's light.
+  const ambient = quality === 'high' ? HIGH_AMBIENT_SHARE : 1
+  scene.add(new THREE.HemisphereLight(options.dark ? '#9fb0e0' : '#fff6ea', options.dark ? '#3a3040' : '#b8a48c', (options.dark ? 1.35 : 1.5) * ambient))
   const key = new THREE.DirectionalLight(options.dark ? '#b9c8ff' : '#fff1dc', options.dark ? 1.5 : 2.2)
   key.castShadow = true
-  key.shadow.mapSize.set(2048, 2048)
+  key.shadow.mapSize.set(profile.shadowMapSize, profile.shadowMapSize)
   key.shadow.camera.near = 1
   key.shadow.bias = -0.0006
-  key.shadow.radius = 3
+  key.shadow.radius = profile.shadowRadius
   scene.add(key, key.target)
   const fill = new THREE.DirectionalLight(options.dark ? '#5b4b8a' : '#cfe3ff', options.dark ? 0.35 : 0.6)
   fill.position.set(9, 5, -3)
   scene.add(fill)
+  // The high setting's passes draw the room page; behind the frosted glass the picture is too
+  // small and blurred for them, so it is drawn straight.
+  const drawing = createDrawing(renderer, scene, camera, quality, options.dark)
+  rimLight(scene, quality, options.dark, TARGET)
 
   // One set of finishes and one room kit for every floor: the floors share their buffers.
   const finishes = createFinishes()
+  dressFinishes(renderer, finishes, quality, options.dark)
+  /** What swims in every floor's fish tank (setModel). */
+  let fish: TankFish = 'small'
   const roomKit = createRoomKit({ dark: options.dark, accent: options.accent }, finishes)
 
   // What turns a stack of rooms into a building: corner posts on every floor, a roof, a plinth.
@@ -550,6 +586,7 @@ export function createStudioScene(stage: HTMLElement, overlay: HTMLElement, opti
     const group = new THREE.Group()
     group.userData.floorId = view.id
     const room = buildRoom(roomKit)
+    room.aquarium.setFish(fish)
     group.add(room.group)
     const posts = new THREE.Group()
     for (const mesh of meshesOf(postParts, finishes)) posts.add(mesh)
@@ -909,6 +946,7 @@ export function createStudioScene(stage: HTMLElement, overlay: HTMLElement, opti
     const width = Math.max(1, stage.clientWidth)
     const height = Math.max(1, stage.clientHeight)
     renderer.setSize(width, height, false)
+    drawing.setSize(width, height)
     camera.aspect = width / height
     camera.updateProjectionMatrix()
     // Frame the view once the stage has a size; later the user's own zoom stays.
@@ -956,8 +994,10 @@ export function createStudioScene(stage: HTMLElement, overlay: HTMLElement, opti
   }
   const onUp = (event: PointerEvent): void => {
     if (down && Math.hypot(event.clientX - down.x, event.clientY - down.y) < 5) {
-      const found = hit(event)
-      if (found?.person) handlers.pick(found.floor, found.person)
+      const label = labelAt(overlay, event.clientX, event.clientY)
+      const found = label ? null : hit(event)
+      if (label) label.click()
+      else if (found?.person) handlers.pick(found.floor, found.person)
       else if (found) handlers.pickFloor(found.floor)
     }
     down = null
@@ -965,6 +1005,12 @@ export function createStudioScene(stage: HTMLElement, overlay: HTMLElement, opti
   const onMove = (event: PointerEvent): void => {
     if (event.buttons) {
       handled()
+      return
+    }
+    const label = labelAt(overlay, event.clientX, event.clientY)
+    if (label) {
+      hovered = ordered.find((floor) => floor.sign === label)?.id ?? null
+      renderer.domElement.style.cursor = 'pointer'
       return
     }
     const found = hit(event)
@@ -979,6 +1025,8 @@ export function createStudioScene(stage: HTMLElement, overlay: HTMLElement, opti
   renderer.domElement.addEventListener('wheel', handled, { passive: true })
   const onLost = (event: Event): void => event.preventDefault()
   renderer.domElement.addEventListener('webglcontextlost', onLost)
+  // The GPU gave the context back (three.js sets itself up again): drawn again at the full rate.
+  renderer.domElement.addEventListener('webglcontextrestored', handled)
 
   let frame = 0
   let last = performance.now()
@@ -1011,14 +1059,18 @@ export function createStudioScene(stage: HTMLElement, overlay: HTMLElement, opti
           walking ||= member.person.walking
         }
         dress(floor, now)
+        floor.room.aquarium.tick(now, dt, still)
       }
     }
     lively = stack(now) === false || walking || move !== null
     if (move) stepMove(now)
     else if (mode === 'backdrop') lively = follow(dt) || lively
     else controls.update()
-    renderer.render(scene, camera)
+    if (mode === 'room') drawing.render()
+    else drawing.renderPlain()
     if (mode === 'room') place()
+    // Drawn once: the studio page fades the room in (studio.css).
+    if (stage.dataset.drawn !== 'true') stage.dataset.drawn = 'true'
     spent += performance.now() - began
     measured += 1
     if (measured >= 60) {
@@ -1042,6 +1094,10 @@ export function createStudioScene(stage: HTMLElement, overlay: HTMLElement, opti
     },
     setPaused(next) {
       paused = next
+    },
+    setModel(model) {
+      fish = fishFor(model)
+      for (const floor of floors.values()) floor.room.aquarium.setFish(fish)
     },
     setMode(next) {
       if (disposed || next === mode) return
@@ -1074,6 +1130,7 @@ export function createStudioScene(stage: HTMLElement, overlay: HTMLElement, opti
       renderer.domElement.removeEventListener('pointermove', onMove)
       renderer.domElement.removeEventListener('pointerleave', onLeave)
       renderer.domElement.removeEventListener('wheel', handled)
+      renderer.domElement.removeEventListener('webglcontextrestored', handled)
       renderer.domElement.removeEventListener('webglcontextlost', onLost)
       controls.dispose()
       for (const floor of floors.values()) removeFloor(floor)
@@ -1085,6 +1142,8 @@ export function createStudioScene(stage: HTMLElement, overlay: HTMLElement, opti
       for (const part of postParts) part.geometry.dispose()
       roomKit.dispose()
       disposeFinishes(finishes)
+      drawing.dispose()
+      releaseEnvironment(renderer)
       renderer.dispose()
       renderer.forceContextLoss()
       renderer.domElement.remove()

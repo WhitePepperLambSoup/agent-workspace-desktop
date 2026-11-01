@@ -90,7 +90,17 @@ def _safe_environment() -> dict[str, str]:
         )
     else:
         result["PATH"] = os.defpath
+    result.update(_chart_defaults())
     return result
+
+
+def _chart_defaults() -> dict[str, str]:
+    """On Windows, any Python's Matplotlib draws Chinese labels as text, not boxes. Unset on
+    Android, which brings its own file; a project's own matplotlibrc comes first either way."""
+    if os.name != "nt":
+        return {}
+    path = Path(__file__).resolve().parent.parent / "science" / "aw_sciplot" / "matplotlibrc"
+    return {"MATPLOTLIBRC": str(path)} if path.is_file() else {}
 
 
 def _resolve_system_shell(kind: str) -> Path:

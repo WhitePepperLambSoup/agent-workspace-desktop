@@ -1,4 +1,4 @@
-import { BookOpen, Building2, Clock, Construction, Crosshair, Map as MapIcon, MessageSquare, Server, Smartphone, type LucideIcon } from 'lucide-react'
+import { BookOpen, Building2, Clock, Construction, Crosshair, Map as MapIcon, MessageSquare, MonitorDot, Server, Smartphone, type LucideIcon } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { WorkbenchBridgeClient } from '../bridge/client'
@@ -22,8 +22,8 @@ const FOLLOW_STAY_MS = 5000
 const FOLLOW_SETTLE_MS = 1500
 
 type Place = Exclude<PlaceId, 'studio'>
-const CAMPUS: readonly Place[] = ['campus', 'library', 'site', 'servers', 'duty', 'desk']
-const PLACE_ICONS: Record<Place, LucideIcon> = { campus: MapIcon, library: BookOpen, site: Construction, servers: Server, duty: Clock, desk: Smartphone }
+const CAMPUS: readonly Place[] = ['campus', 'control', 'library', 'site', 'servers', 'duty', 'desk']
+const PLACE_ICONS: Record<Place, LucideIcon> = { campus: MapIcon, control: MonitorDot, library: BookOpen, site: Construction, servers: Server, duty: Clock, desk: Smartphone }
 
 /** What is looked at while shown in full: wherever the agent works, a floor (null: the building), or a place. */
 type Look = { kind: 'follow' } | { kind: 'floor'; id: string | null } | { kind: 'place'; place: Place }
@@ -165,6 +165,12 @@ export function StudioBackdrop({ state, client, viewing, paused, onPick, onOpenS
     sceneRef.current?.setMode(viewing ? 'room' : 'backdrop')
   }, [viewing, ready])
 
+  // The fish tank: what swims in it depends on the model at work.
+  const model = typeof state.provider?.model === 'string' ? state.provider.model : null
+  useEffect(() => {
+    sceneRef.current?.setModel(model)
+  }, [model, ready])
+
   // Nothing is drawn while the window is hidden, the studio page draws it instead, or a place of
   // the campus is shown in its stead.
   useEffect(() => {
@@ -186,7 +192,7 @@ export function StudioBackdrop({ state, client, viewing, paused, onPick, onOpenS
         <div className="studio-backdrop-place">
           <PlaceView key={placeShown} place={placeShown} state={state} client={client} look={look} paused={paused}
             onPlace={(place) => setChoice(place === 'studio' ? { kind: 'floor', id: selectedId } : { kind: 'place', place })}
-            onOpenRoute={onOpenRoute} onOpenAgent={onLeave} onOpenRun={onOpenRun} />
+            onOpenRoute={onOpenRoute} onOpenAgent={onLeave} onOpenRun={onOpenRun} onOpenSession={onOpenSession} />
         </div>
       ) : null}
       {viewing && ready ? (

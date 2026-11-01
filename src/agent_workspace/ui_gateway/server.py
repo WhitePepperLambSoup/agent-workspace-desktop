@@ -4,19 +4,25 @@ import json
 import os
 import sys
 import threading
-from collections.abc import Mapping
+import time
+from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from dataclasses import dataclass, field
-from typing import BinaryIO
+from pathlib import Path
+from typing import BinaryIO, cast
 
-from agent_workspace.storage.sqlite import trust_databases_validated_here
+from agent_workspace.config import default_database_path
+from agent_workspace.storage.slow_work import report_slow_work_with
+from agent_workspace.storage.sqlite import SQLiteEventStore, trust_databases_validated_here
 from agent_workspace.ui_gateway.backups import run_daily_backup
+from agent_workspace.ui_gateway.data_care import apply_pending_restore
 from agent_workspace.ui_gateway.gateway_code import (
     CODE_LONG_COMMANDS,
     CODE_QUERY_COMMANDS,
     EDITOR_MODEL_COMMANDS,
 )
+from agent_workspace.ui_gateway.gateway_data import DATA_LONG_COMMANDS, DATA_QUERY_COMMANDS
 from agent_workspace.ui_gateway.gateway_debug import DEBUG_LONG_COMMANDS, DEBUG_QUERY_COMMANDS
 from agent_workspace.ui_gateway.gateway_git import (
     GIT_GITHUB_COMMANDS,
@@ -39,6 +45,8 @@ from agent_workspace.ui_gateway.protocol import (
 from agent_workspace.ui_gateway.runtime import GatewayError, GatewayReply, GatewayRuntime
 
 # One model request each, run off the command thread so the window stays responsive.
+_MAIN_PROCESS_REPLIES = frozenset({"app.activity.result"})
+
 _MODEL_CALL_COMMANDS = frozenset(
     {
         "prompt.optimize",
@@ -204,6 +212,10 @@ class GatewayServer:
             return self._schedule_query(command, request_id, session_id)
         if command.type in CODE_QUERY_COMMANDS and concurrent_commands:
             return self._schedule_query(command, request_id, session_id)
+        if command.type in DATA_QUERY_COMMANDS and concurrent_commands:
+            return self._schedule_query(command, request_id, session_id)
+        if command.type in DATA_LONG_COMMANDS and concurrent_commands:
+            return self._schedule_code_job(command, request_id, session_id)
         if command.type in SHELL_QUERY_COMMANDS and concurrent_commands:
             return self._schedule_query(command, request_id, session_id)
         if command.type in DEBUG_QUERY_COMMANDS and concurrent_commands:
@@ -425,6 +437,11 @@ class GatewayServer:
         try:
             reply = self._dispatch(command)
             response = reply.to_document(command.request_id)
+            # The window treats a reply with no epoch as one from another run of the sidecar and
+            # reads its whole state again; each command need not remember to add it.
+            epoch = getattr(self.runtime, "epoch", None)
+            if epoch is not None:
+                cast(dict[str, object], response["payload"]).setdefault("epoch", epoch)
             should_stop = reply.should_stop
         except (ProtocolError, GatewayError) as error:
             return self._write_error_response(request_id, session_id, str(error))
@@ -475,7 +492,11 @@ class GatewayServer:
 
     def _write(self, message: Mapping[str, object]) -> None:
         document = dict(message)
-        if document.get("kind") in {"response", "event"}:
+        # The numbers are the window's: it reads a missing one as a lost message. A reply that goes
+        # only to the main process, which the window never sees, must not take one.
+        if document.get("kind") in {"response", "event"} and document.get("type") not in (
+            _MAIN_PROCESS_REPLIES
+        ):
             document["sequence"] = self._next_wire_sequence
             self._next_wire_sequence += 1
         self.output_stream.write(encode_message(document))
@@ -497,6 +518,36 @@ def _request_context(line: bytes) -> tuple[str, str | None]:
     )
 
 
+def _check_database_first(database: Path) -> None:
+    """Do the first open's full check here, where only the window waits, and is told why. Left to
+    the restored conversation's host, which has seconds to start, a check past those left the
+    runtime stopped. A damaged database is for the window's recovery to report, as before."""
+    if database.is_file():
+        with suppress(Exception), SQLiteEventStore(database):
+            pass
+
+
+_BUSY_MARK = "aw-sidecar-busy"
+_BUSY_EVERY_SECONDS = 5.0
+
+
+def _busy_reporter() -> Callable[[], None]:
+    """A line on stderr now and then (desktop/src/main/sidecar.ts): stdout is the protocol's."""
+    last = 0.0
+
+    def report() -> None:
+        nonlocal last
+        now = time.monotonic()
+        if now - last < _BUSY_EVERY_SECONDS:
+            return
+        last = now
+        with suppress(Exception):
+            sys.__stderr__.write(f"{_BUSY_MARK}\n")  # type: ignore[union-attr]
+            sys.__stderr__.flush()  # type: ignore[union-attr]
+
+    return report
+
+
 def main() -> int:
     # Long tool results of earlier tasks (a fetched page, a large file) go on to the model as
     # their start only; the agent reads them again when it needs them. Set to 0 to keep them.
@@ -506,9 +557,18 @@ def main() -> int:
     os.environ.setdefault("AGENT_WORKSPACE_RAW_TRACE_REQUEST_DELTAS", "1")
     os.environ.setdefault("AGENT_WORKSPACE_RAW_TRACE_MAX_TOTAL_BYTES", str(100 * 1024 * 1024))
     os.environ.setdefault("AGENT_WORKSPACE_RAW_TRACE_MAX_AGE_DAYS", "14")
+    # A task left working for hours survives a dead connection and a few minutes without a network.
+    os.environ.setdefault("AGENT_WORKSPACE_PROVIDER_IDLE_SECONDS", "300")
+    os.environ.setdefault("AGENT_WORKSPACE_STREAM_RECOVERY_DELAYS", "5,15,30,60,120,180")
     # Conversation switches open the database again; replaying its whole history
     # each time made them miss the host start deadline on a long history. A database
     # this app closed cleanly is not replayed again at the next start either.
     trust_databases_validated_here(across_restarts=True)
+    # A long check of a large history says it is at work, so the window waits for it.
+    report_slow_work_with(_busy_reporter())
+    # A backup the user chose is put back now, while nothing has the database open.
+    database = default_database_path().expanduser().resolve()
+    apply_pending_restore(database)
+    _check_database_first(database)
     runtime = GatewayRuntime(daily_backup=run_daily_backup)
     return GatewayServer(sys.stdin.buffer, sys.stdout.buffer, runtime).run()

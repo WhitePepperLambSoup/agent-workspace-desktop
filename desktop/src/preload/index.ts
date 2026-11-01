@@ -5,7 +5,7 @@ import {
   nativeAppearanceResultSchema,
 } from '../shared/appearance'
 import { type AgentWorkspaceApi, type DesktopHostApi, type PreviewApi, type UiEvent, type UiResponse, uiCommandSchema } from '../shared/api'
-import { appInfoSchema, desktopNotificationSchema, updateStatusSchema } from '../shared/desktop'
+import { appInfoSchema, backgroundSettingsSchema, desktopNotificationSchema, mainStringsSchema, updateStatusSchema } from '../shared/desktop'
 import { parseAttachmentCapabilities, validateAttachmentImports } from '../shared/attachment-validation'
 import { windowActionResultSchema, windowActionSchema } from '../shared/window'
 import { previewActionSchema, previewBoundsSchema, previewStateSchema, previewTargetSchema } from '../shared/preview'
@@ -29,6 +29,12 @@ const desktopMethods: DesktopHostApi = {
     const result: unknown = await ipcRenderer.invoke('agent-workspace:update-feed')
     const url = result && typeof result === 'object' ? (result as { url?: unknown }).url : null
     return typeof url === 'string' ? url : null
+  },
+  async getUpdateAutoCheck() {
+    return (await ipcRenderer.invoke('agent-workspace:update-auto-get')) === true
+  },
+  async setUpdateAutoCheck(enabled) {
+    return (await ipcRenderer.invoke('agent-workspace:update-auto-set', enabled === true)) === true
   },
   async setUpdateFeed(url) {
     if (url !== null && (typeof url !== 'string' || url.length > 2048)) return false
@@ -56,6 +62,35 @@ const desktopMethods: DesktopHostApi = {
     try { payload = JSON.parse(JSON.stringify(workbench ?? null)) } catch { payload = null }
     const result: unknown = await ipcRenderer.invoke('agent-workspace:export-diagnostics', payload)
     return typeof result === 'string' ? result : null
+  },
+  async relaunch() {
+    return (await ipcRenderer.invoke('agent-workspace:relaunch')) === true
+  },
+  async getBackgroundSettings() {
+    const result = (await ipcRenderer.invoke('agent-workspace:background-get')) as { settings?: unknown; canOpenAtLogin?: unknown } | null
+    return { settings: backgroundSettingsSchema.parse(result?.settings), canOpenAtLogin: result?.canOpenAtLogin === true }
+  },
+  async setBackgroundSettings(settings) {
+    const parsed = backgroundSettingsSchema.safeParse(settings)
+    if (!parsed.success) return null
+    const result = backgroundSettingsSchema.safeParse(await ipcRenderer.invoke('agent-workspace:background-set', parsed.data))
+    return result.success ? result.data : null
+  },
+  setMainStrings(strings) {
+    const parsed = mainStringsSchema.safeParse(strings)
+    if (parsed.success) ipcRenderer.send('agent-workspace:main-strings', parsed.data)
+  },
+  async defaultWorkspaceFolder() {
+    const result: unknown = await ipcRenderer.invoke('agent-workspace:default-workspace-folder')
+    return typeof result === 'string' && result.length <= 4096 ? result : null
+  },
+  reportUiError(report) {
+    ipcRenderer.send('agent-workspace:ui-error', {
+      where: String(report.where).slice(0, 120),
+      message: String(report.message).slice(0, 2000),
+      stack: String(report.stack).slice(0, 8000),
+      componentStack: String(report.componentStack).slice(0, 8000),
+    })
   },
   async notify(notification) {
     const parsed = desktopNotificationSchema.safeParse(notification)

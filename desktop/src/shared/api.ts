@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import type { NativeAppearanceRequest, NativeAppearanceResult } from './appearance'
-import type { AppInfo, DesktopNotification, UpdateStatus } from './desktop'
+import type { AppInfo, BackgroundSettings, DesktopNotification, MainStrings, UiErrorReport, UpdateStatus } from './desktop'
 import type { WindowAction, WindowActionResult } from './window'
 import type { AttachmentCapability, AttachmentImportFile } from './attachments'
 export type { AttachmentCapability, AttachmentImportFile } from './attachments'
@@ -162,12 +162,24 @@ export interface DesktopHostApi {
   getUpdateStatus(): Promise<UpdateStatus>
   getUpdateFeed(): Promise<string | null>
   setUpdateFeed(url: string | null): Promise<boolean>
+  getUpdateAutoCheck(): Promise<boolean>
+  setUpdateAutoCheck(enabled: boolean): Promise<boolean>
   checkForUpdates(): Promise<UpdateStatus>
   downloadUpdate(): Promise<UpdateStatus>
   installUpdate(): Promise<boolean>
   onUpdateStatus(listener: (status: UpdateStatus) => void): () => void
   /** Saves a redacted diagnostics report; resolves to the saved path or null when cancelled. */
   exportDiagnostics(workbench: Record<string, unknown>): Promise<string | null>
+  /** Quits and starts again. */
+  relaunch(): Promise<boolean>
+  getBackgroundSettings(): Promise<{ settings: BackgroundSettings; canOpenAtLogin: boolean }>
+  setBackgroundSettings(settings: BackgroundSettings): Promise<BackgroundSettings | null>
+  /** The main process's dialogs and tray speak the window's language. */
+  setMainStrings(strings: MainStrings): void
+  /** Makes the folder a new user can start in (in Documents); null when it cannot be made. */
+  defaultWorkspaceFolder(): Promise<string | null>
+  /** Records an error of the interface in the app's log. */
+  reportUiError(report: UiErrorReport): void
   /** Shows a system notification while the window is in the background; false when skipped. */
   notify(notification: DesktopNotification): Promise<boolean>
   onNotificationActivated(listener: (sessionId: string | null) => void): () => void

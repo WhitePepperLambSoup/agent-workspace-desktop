@@ -60,6 +60,17 @@ the folder after it), and `RuntimeHost` appends the result as `turn.files.change
 turn's last event. `turn.files.diff` and `turn.files.undo` look the record up by its event id;
 the window never sends content digests.
 
+The window follows the sidecar by sequence numbers and reads a missing one as a lost message, which
+makes it read the whole state again. So a reply only the main process sees (`app.activity`, polled
+for the tray and the close button) takes no number, and the server fills in the epoch of any reply
+that leaves it out. A part of the window that fails to draw stops at an `ErrorBoundary`
+(`renderer/src/app/ErrorBoundary.tsx`): the window, each page, the panels, the backdrop and each
+conversation entry have their own.
+
+`desktop/src/main/background.ts` decides what closing the window does, and keeps the tray and the
+hold on sleep. A restore from a backup (`ui_gateway/data_care.py`) is a note carried out by the next
+start of the sidecar, before the database is opened, since Windows cannot move an open file.
+
 Provider profile persistence, a successful diagnostic request, and the active runtime provider are
 different facts. UI state must name them separately. Workspace, session, attachment, approval,
 history, changes, and job-log responses are session-bound capabilities and must be invalidated on

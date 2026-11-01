@@ -2,12 +2,12 @@
 
 ## Supported versions
 
-Agent Workspace is pre-release software. Only the latest code on `main` will receive security
-fixes until the first stable release.
+Security fixes go to the latest release. Installed copies find a new version by themselves once a
+day (see below).
 
 ## Current trust boundary
 
-The `0.2.0-alpha` code provides application-level workspace checks, explicit tool approval, CAS
+The app provides application-level workspace checks, explicit tool approval, CAS
 file writes, endpoint validation, local audit events, and a staged sandbox that never changes the
 workspace directly. The staged sandbox is a review boundary, not an operating-system security
 boundary: the commands it runs have the current user's access to files and the network.
@@ -33,6 +33,14 @@ In particular:
   current Windows user's access to the rest of the file system, the registry and the network, so
   the sandbox is a review boundary rather than isolation. The former Docker backend is disabled.
   Details and limits are in `docs/SANDBOX.md`.
+- Outside content that talks to the agent (known phrasings in English and Chinese, in the output of a
+  web tool, a document, a command or an MCP tool; not in the folder's code files) takes back what was
+  allowed for the conversation and its team, makes every further step of that turn ask whatever the
+  autonomy, including YOLO, and refuses memory and knowledge writes. This is a deterministic pre-filter,
+  not a guarantee: other wording passes, and content that was once read stays in the conversation.
+- The app's own engine answers only its window (over a pipe) and paired phones (with their tokens, kept
+  hashed), so a command cannot approve its own steps. It can, however, read what the current Windows
+  user can: the conversations' database and the Credential Manager entries included.
   A complete manifest is committed as a content-addressed changeset event in the same transaction
   as sandbox settlement. Binary postimages are bounded to 16 MiB each and 64 MiB per captured batch;
   the SQLite binary artifact store rejects new writes above 512 MiB.
@@ -72,6 +80,10 @@ In particular:
   current session, and YOLO records the transfer without prompting. Numeric loopback endpoints are
   treated as local; `localhost` names still require approval, and owned loopback HTTP clients ignore
   environment proxy settings.
+  A provider chosen in first-use setup, or with "Always allow" on that question, is trusted from
+  then on (`trusted-providers.json` beside the database, by origin): requests go to it without
+  asking, and are still recorded. Requests that may hold sensitive paths still ask every time.
+  Settings → Autonomy lists these providers and can ask about each again.
 - API keys may be read from the environment for one-off runs or stored as current-user generic
   credentials in Windows Credential Manager. They are never accepted in a Provider URL, written to
   profile TOML or SQLite, logged, or included in session exports. Stored keys are bound to a
@@ -202,8 +214,17 @@ In particular:
 - A paired phone reads changes and review snapshots with the `read` scope; creating snapshots,
   comments and follow-ups needs `tasks`, and a follow-up that would run with YOLO or full access
   needs the phone's confirmation and the `broad_autonomy` scope, as a task does.
-- Installed builds check the HTTPS release feed only when the user asks, and download an update
-  only after confirmation. Releases are not code-signed yet; each release lists SHA-256 sums.
+- Installed builds read the HTTPS release feed once a day while they run, unless that is turned off
+  in Settings; the request carries nothing but what any download does. An update downloads only
+  after the user clicks, and is checked against the feed's SHA-512. Releases are not code-signed
+  yet; each release lists SHA-256 sums.
+- A restore from a backup is verified when asked for and carried out at the next start, before the
+  database is opened. The database it replaces stays in the data folder, in plaintext, until the
+  next restore. A damaged database set aside for a new start stays there too.
+- Mermaid diagrams in answers are parsed in strict mode and shown as images: an SVG in an image can
+  run no script and load nothing.
+- The app can run behind a closed window and start with Windows, when the user chooses that; tasks
+  and the phone connection then keep running with the same limits as with the window open.
 
 ## Reporting a vulnerability
 

@@ -13,7 +13,7 @@ sub-agents and the teams can be seen at work.
 The Android app ([agent-workspace-android](https://github.com/WhitePepperLambSoup/agent-workspace-android))
 shares the same Python core; a phone running version 2.5.0 or later can connect to this computer.
 
-> Status: public preview (`0.2.0-alpha`). Windows 10 and 11, x64. Releases are not code-signed yet.
+> Windows 10 and 11, x64. Releases are not code-signed yet. Questions and problems: [Help](docs/HELP.md).
 
 <p align="center">
   <img src="docs/screenshots/studio-building-en.png" width="820" alt="The studio: three conversations with expert teams at work, one floor each">
@@ -24,8 +24,9 @@ shares the same Python core; a phone running version 2.5.0 or later can connect 
 Download `AgentWorkspace-Setup-<version>.exe` from the
 [latest release](https://github.com/WhitePepperLambSoup/agent-workspace-desktop/releases/latest) and
 compare its SHA-256 with the one in the release notes. Windows SmartScreen warns about unsigned
-installers: choose "More info", then "Run anyway". Installed copies can update themselves from the
-releases page (Settings → About & Updates); they check only when you ask.
+installers: choose "More info", then "Run anyway". Installed copies look for a new version once a
+day, say so in the corner of the window, and download it only when you click (Settings → About &
+Updates turns the check off).
 
 ## Features
 
@@ -63,9 +64,14 @@ colour field by itself.
 Shown in full, the view follows the agent to where its work is: the library while it searches the
 knowledge base or papers, the building site while it writes and tests code, the server room while
 it runs commands on a server. The campus around the studio also has a duty room for scheduled
-tasks and a front desk for the phone connection. Each place is drawn from what is on this computer
+tasks, a front desk for the phone connection, and a control room with every conversation at work in
+one view, to answer, open or stop. A finished turn can be replayed there as well. Each place is
+drawn from what is on this computer
 (the open folder's files and Git state, the knowledge bases, the hosts of `~/.ssh/config`), and
-clicking something opens its page.
+things can be done there: a file's diff and undo at the site, a job's output and stop in the server
+room, a search in the library. For a strong computer, Settings → Appearance → 3D graphics has a
+High setting: finer models of people, furniture and every place, reflections, ambient occlusion and
+soft shadows.
 
 <p align="center">
   <img src="docs/screenshots/campus-en.png" width="408" alt="The campus: the studio, the library, the building site, the server room, the duty room and the front desk">
@@ -89,7 +95,12 @@ clicking something opens its page.
   composer estimates what a task like your recent ones costs. A task that reaches the limit, or
   fails at the provider, stops with the reason in the conversation.
 - **Agent runs**: long work split into a plan with sub-agents, each with its own progress,
-  approvals and results.
+  approvals and results. Sub-agents can use a model and thinking effort of their own (Settings →
+  Sub-agent model).
+- **Diagrams**: Mermaid blocks in an answer are drawn (flowcharts, sequence, class, state, ER, Gantt,
+  pie and others), and stay in an exported answer.
+- **In the background**: closing the window asks when something would stop, and the app can stay in
+  the notification area, start with Windows, and keep the computer awake while a task runs.
 - **What changed**: each answer ends with the files its task created, edited, moved or deleted.
   Open one in the app, see what changed in an edited text file, or undo the agent's changes one
   file at a time or all together. Files that commands changed are listed apart.
@@ -277,17 +288,25 @@ removed from either side. The protocol is in [docs/DEVICE_LINK_API.md](docs/DEVI
 - Command palette and customizable shortcuts, `/` commands and `@` file mentions, notifications
   when a background task needs you, and session rename, pin, archive, export and import.
 - The main surfaces are checked against WCAG 2.2 AA.
-- A verified backup of the database once a day, made in the background (the last ten are kept);
-  logs and crash dumps stay on this computer.
+- A verified backup of the database once a day, made in the background (the last ten are kept).
+  Settings → Data and backups shows what is stored, backs up on request and puts a backup back; a
+  damaged database can be recovered from the conversation page. Logs and crash dumps stay on this
+  computer.
 
 ## Quick start
 
 1. Install and start Agent Workspace.
-2. In Settings → Provider and runtime, add a provider (base URL, model, API key) or pick a local
-   preset.
-3. Open a folder (the button at the top, or drop the folder on the window).
+2. Choose a model: pick a provider, paste its API key (or pick a server on this computer), and the
+   app tries it before saving it.
+3. Choose a folder to work in, or use the default one in Documents.
 4. Describe the task. Approve or decline what the agent asks to do; the context panel on the
    right shows what the model receives and what the task costs.
+
+<p align="center">
+  <img src="docs/screenshots/setup-en.png" width="720" alt="First-use setup: a provider with its API key, then a folder to work in">
+</p>
+
+If something does not work, see [Help](docs/HELP.md).
 
 ## Build from source
 
@@ -322,7 +341,7 @@ archives, logs, updates and signing are covered in [docs/OPERATIONS.md](docs/OPE
 src/agent_workspace/   Python core: agent loop, providers, tools, storage, knowledge base,
                        and the UI gateway the desktop app talks to (ui_gateway/)
 desktop/               Electron main process, preload and the React renderer
-docs/                  architecture, sandbox, background jobs and phone connection protocol
+docs/                  help, architecture, sandbox, background jobs and phone connection protocol
 scripts/               release build and verification, architecture checks
 ```
 

@@ -28,6 +28,7 @@ from agent_workspace.core.models import Autonomy, BinaryArtifact, Mode
 from agent_workspace.core.session import Session
 from agent_workspace.storage.durable import durable_publish_new, durable_replace, fsync_directory
 from agent_workspace.storage.lock import ProcessWriteLock
+from agent_workspace.storage.slow_work import simulate_long_check, watch_connection
 from agent_workspace.storage.sqlite import (
     CURRENT_SCHEMA_MIGRATIONS,
     CURRENT_SCHEMA_VERSION,
@@ -435,6 +436,8 @@ def validate_database(database: str | Path) -> DatabaseValidation:
     except sqlite3.Error:
         raise BackupValidationError("database cannot be opened") from None
     connection.row_factory = sqlite3.Row
+    watch_connection(connection)
+    simulate_long_check()
     try:
         # All integrity and replay queries must observe the same WAL snapshot.
         connection.execute("BEGIN")

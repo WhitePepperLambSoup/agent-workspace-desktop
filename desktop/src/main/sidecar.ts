@@ -52,6 +52,7 @@ interface SidecarOptions {
 }
 
 interface PendingRequest {
+  startedAt: number
   commandType: UiCommand['type']
   expectedType: Exclude<UiResponse['type'], 'app.error'>
   expectedSessionId: string | null
@@ -78,6 +79,11 @@ const EXPECTED_RESPONSE_TYPES: Record<
   'app.handshake': 'app.handshake.result',
   'app.bootstrap': 'app.bootstrap.result',
   'app.shutdown': 'app.shutdown.result',
+  'app.activity': 'app.activity.result',
+  'data.status': 'data.status.result',
+  'data.backup': 'data.backup.result',
+  'data.restore': 'data.restore.result',
+  'data.fresh_start': 'data.fresh_start.result',
   'workspace.open': 'workspace.open.result',
   'workspace.sessions.list': 'workspace.sessions.list.result',
   'session.list': 'session.list.result',
@@ -92,8 +98,12 @@ const EXPECTED_RESPONSE_TYPES: Record<
   'session.fork': 'session.fork.result',
   'session.compare': 'session.compare.result',
   'session.usage': 'session.usage.result',
+  'usage.conversations': 'usage.conversations.result',
+  'session.replay': 'session.replay.result',
   'limits.get': 'limits.get.result',
   'limits.set': 'limits.set.result',
+  'subagents.model.get': 'subagents.model.get.result',
+  'subagents.model.set': 'subagents.model.set.result',
   'skills.list': 'skills.list.result',
   'skills.set': 'skills.set.result',
   'skills.folder.open': 'skills.folder.open.result',
@@ -215,6 +225,9 @@ const EXPECTED_RESPONSE_TYPES: Record<
   'provider.default': 'provider.default.result',
   'provider.test': 'provider.test.result',
   'provider.bootstrap': 'provider.bootstrap.result',
+  'provider.trust.list': 'provider.trust.list.result',
+  'provider.trust.add': 'provider.trust.add.result',
+  'provider.trust.remove': 'provider.trust.remove.result',
   'provider.health': 'provider.health.result',
   'prompt.optimize': 'prompt.optimize.result',
   'turn.start': 'turn.start.result',
@@ -312,6 +325,12 @@ const EXPECTED_RESPONSE_TYPES: Record<
 
 const DEFAULT_MAX_INFLIGHT_REQUESTS = 64
 const DEFAULT_MAX_QUEUED_BYTES = MAX_MESSAGE_BYTES * 4
+/** What the sidecar writes on stderr during a long check of the conversations. */
+const BUSY_MARK = 'aw-sidecar-busy'
+/** A request past its time waits on while the sidecar said this recently that it is at work. */
+const BUSY_RECENT_MS = 30_000
+/** Longer than any check of a real history; after this the sidecar counts as stuck after all. */
+const BUSY_WAIT_LIMIT_MS = 3_600_000
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000
 const PROVIDER_TEST_TIMEOUT_MS = 25_000
 const GIT_DELIVERY_TIMEOUT_MS = 45_000
@@ -390,6 +409,8 @@ export class SidecarClient {
   private handshakePromise: Promise<void> | null = null
   private restartHandshakeRequired = false
   private recoveryPromise: Promise<void> | null = null
+  /** When the sidecar last said it is at a long check. */
+  private busyAt = 0
   private readonly streamErrorHandlers = new WeakMap<SidecarProcess, StreamErrorHandlers>()
 
   constructor(private readonly options: SidecarOptions) {}
@@ -419,6 +440,7 @@ export class SidecarClient {
     this.ensureStarted()
     const response = new Promise<UiResponse>((resolve, reject) => {
       const pending: PendingRequest = {
+        startedAt: Date.now(),
         commandType: command.type,
         expectedType: EXPECTED_RESPONSE_TYPES[command.type],
         expectedSessionId: command.sessionId,
@@ -591,7 +613,8 @@ export class SidecarClient {
     child.stdout.once('error', streamErrors.stdout)
     child.stderr.once('error', streamErrors.stderr)
     child.stdout.on('data', this.onStdout)
-    child.stderr.resume()
+    this.busyAt = 0
+    child.stderr.on('data', this.onStderr)
     child.once('error', this.onProcessError)
     child.once('exit', this.onProcessExit)
     child.once('close', this.onProcessClose)
@@ -782,8 +805,20 @@ export class SidecarClient {
     return pending
   }
 
+  private readonly onStderr = (chunk: Buffer | string): void => {
+    if (String(chunk).includes(BUSY_MARK)) this.busyAt = Date.now()
+  }
+
   private onRequestTimeout(requestId: string): void {
-    if (!this.pending.has(requestId)) return
+    const pending = this.pending.get(requestId)
+    if (!pending) return
+    // A large history can take minutes to check after an update or a crash. Restarting would begin
+    // the check again from the start, and the app would never open.
+    const now = Date.now()
+    if (now - this.busyAt < BUSY_RECENT_MS && now - pending.startedAt < BUSY_WAIT_LIMIT_MS) {
+      pending.timeout = setTimeout(() => this.onRequestTimeout(requestId), BUSY_RECENT_MS)
+      return
+    }
     const error = new SidecarError('sidecar_request_timeout')
     this.failAll(error)
     const child = this.child
@@ -895,6 +930,7 @@ export class SidecarClient {
       this.streamErrorHandlers.delete(child)
     }
     child.stdout.removeAllListeners('data')
+    child.stderr.removeAllListeners('data')
     child.removeListener('error', this.onProcessError)
     child.removeListener('exit', this.onProcessExit)
     child.removeListener('close', this.onProcessClose)

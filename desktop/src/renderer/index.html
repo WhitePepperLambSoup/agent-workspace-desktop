@@ -8,9 +8,27 @@
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Agent Workspace</title>
+    <link rel="stylesheet" href="/boot.css" />
   </head>
   <body>
+    <div id="boot-screen" class="boot-screen" role="status" aria-busy="true">
+      <canvas aria-hidden="true"></canvas>
+      <div class="boot-lens" aria-hidden="true">
+        <div class="boot-halo"></div>
+        <div class="boot-orbit"><div class="boot-squash"><div class="boot-ring"></div><div class="boot-comet"></div></div></div>
+        <div class="boot-orbit"><div class="boot-squash"><div class="boot-ring"></div><div class="boot-comet"></div></div></div>
+        <div class="boot-orbit"><div class="boot-squash"><div class="boot-ring"></div><div class="boot-comet"></div></div></div>
+        <div class="boot-core"></div>
+      </div>
+      <div class="boot-name">Agent Workspace</div>
+      <p class="boot-hint" hidden></p>
+      <div class="boot-controls" hidden>
+        <button type="button">&#x2013;</button>
+        <button type="button">&#x2715;</button>
+      </div>
+    </div>
     <div id="root"></div>
+    <script src="/boot.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

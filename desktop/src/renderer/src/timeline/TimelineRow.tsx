@@ -52,6 +52,7 @@ const ORIGIN_KEYS: Record<string, MessageKey> = {
   private: 'timeline.originPrivate',
   subtask: 'timeline.originSubtask',
   handoff: 'timeline.originHandoff',
+  team: 'timeline.originTeam',
 }
 
 /** A message a paired phone handed over, and how: confirmed auto-approval, private details. */

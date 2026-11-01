@@ -1,4 +1,4 @@
-import { Building2, Map as MapIcon, Pause, Play, RotateCcw } from 'lucide-react'
+import { Building2, History, Map as MapIcon, Pause, Play, RotateCcw } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 
 import type { WorkbenchBridgeClient } from '../bridge/client'
@@ -8,7 +8,11 @@ import { useOptionalI18n } from '../i18n/I18nProvider'
 import type { WorkbenchState } from '../state/workbench-types'
 import { libraryName } from '../team/catalog'
 import { useTeamSettings } from '../team/team-settings'
+import { requestTimelineFocus } from '../timeline/focus-request'
 import { studioCast } from './cast'
+import { castAt, type ReplayStep } from './replay'
+import { ReplayPanel } from './ReplayPanel'
+import { useReplay } from './use-replay'
 import { busyTeams, floorOrder } from './floors'
 import type { StudioFloorView, StudioScene } from './scene'
 import { actorView, buildingFloors, summaryText, useShellLook } from './views'
@@ -30,6 +34,8 @@ interface StudioProps {
 
 /** The place last shown, for the next time the page opens. */
 let lastPlace: PlaceId = 'studio'
+/** How long a scene takes to fade before the next one comes in (studio.css, data-leaving="now"). */
+const LEAVE_MS = 200
 
 /**
  * The studio page: the studio itself (one room, or the building of the conversations whose teams
@@ -42,14 +48,25 @@ export function StudioRoute(props: StudioProps) {
     lastPlace = next
     setPlaceState(next)
   }, [])
+  // Back to the campus: the scene on screen fades first, then the campus comes in.
+  const leaveFor = useCallback((next: PlaceId) => {
+    const stage = document.querySelector<HTMLElement>('.studio-route .studio-stage')
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || document.querySelector('[data-reduced-motion="true"]') !== null
+    if (!stage || stage.dataset.drawn !== 'true' || reduced) {
+      setPlace(next)
+      return
+    }
+    stage.dataset.leaving = 'now'
+    window.setTimeout(() => setPlace(next), LEAVE_MS)
+  }, [setPlace])
   const toCampus = place === 'campus' ? null : (
-    <button type="button" className="icon-button studio-campus-button" aria-label={t('places.campus.go')} title={t('places.campus.go')} onClick={() => setPlace('campus')}><MapIcon size={15} /></button>
+    <button type="button" className="icon-button studio-campus-button" aria-label={t('places.campus.go')} title={t('places.campus.go')} onClick={() => leaveFor('campus')}><MapIcon size={15} /></button>
   )
   if (place === 'studio') return <StudioRoom {...props} nav={toCampus} />
   return <PlacePage {...props} place={place} nav={toCampus} onPlace={setPlace} />
 }
 
-function PlacePage({ place, nav, onPlace, state, client, onOpenAgent, onOpenRoute, onOpenRun }: StudioProps & {
+function PlacePage({ place, nav, onPlace, state, client, onOpenAgent, onOpenRoute, onOpenRun, onOpenSession }: StudioProps & {
   place: Exclude<PlaceId, 'studio'>
   nav: ReactNode
   onPlace: (place: PlaceId) => void
@@ -78,12 +95,12 @@ function PlacePage({ place, nav, onPlace, state, client, onOpenAgent, onOpenRout
         </div>
       </header>
       <PlaceView key={place} place={place} state={state} client={client} look={look} paused={paused} resets={resets}
-        onPlace={onPlace} onOpenRoute={onOpenRoute} onOpenAgent={onOpenAgent} onOpenRun={onOpenRun} onReady={(value) => setReady(value === true)} />
+        onPlace={onPlace} onOpenRoute={onOpenRoute} onOpenAgent={onOpenAgent} onOpenRun={onOpenRun} onOpenSession={onOpenSession} onReady={(value) => setReady(value === true)} />
     </main>
   )
 }
 
-function StudioRoom({ state, onOpenRun, onOpenAgent, onOpenSession, nav }: StudioProps & { nav?: ReactNode }) {
+function StudioRoom({ state, client, onOpenRun, onOpenAgent, onOpenSession, nav }: StudioProps & { nav?: ReactNode }) {
   const { t, locale } = useOptionalI18n()
   const team = useTeamSettings()
   const look = useShellLook()
@@ -95,21 +112,41 @@ function StudioRoom({ state, onOpenRun, onOpenAgent, onOpenSession, nav }: Studi
   const [paused, setPaused] = useState(false)
   /** The floor up close while the building is shown; null is the whole building. */
   const [focus, setFocus] = useState<string | null>(null)
+  /** A finished turn of this conversation told again in the room. */
+  const [replaying, setReplaying] = useState(false)
 
   const names = { lead: t('studio.lead'), expert: (id: string) => libraryName(id, locale) ?? id, helper: t('studio.helper') }
+  const selectedId = typeof state.selectedSession?.id === 'string' ? state.selectedSession.id : null
+  const replay = useReplay(client, selectedId, replaying)
+  const shownReplay = replaying ? replay.data?.replay ?? null : null
   // Each conversation seen with its team at work while the studio is open keeps a floor;
   // with two or more the studio is an office building.
   const order = useRef<string[]>([])
   order.current = floorOrder(order.current, busyTeams(state))
-  const building = order.current.length >= 2
-  const selectedId = typeof state.selectedSession?.id === 'string' ? state.selectedSession.id : null
+  const building = !shownReplay && order.current.length >= 2
   const workspaces = new Map<string, string | null>()
-  const floors: StudioFloorView[] = building
-    ? buildingFloors(state, team, names, order.current, t).map(({ workspace, ...floor }) => {
-      workspaces.set(floor.id, workspace)
-      return floor
-    })
-    : [{ id: selectedId ?? 'studio', number: '', title: '', summary: '', busy: false, cast: studioCast(state, team, names).map((actor) => actorView(actor, t)) }]
+  const floors: StudioFloorView[] = shownReplay
+    ? [{ id: selectedId ?? 'studio', number: '', title: '', summary: '', busy: false, cast: castAt(shownReplay, replay.at, names).map((actor) => actorView(actor, t)) }]
+    : building
+      ? buildingFloors(state, team, names, order.current, t).map(({ workspace, ...floor }) => {
+        workspaces.set(floor.id, workspace)
+        return floor
+      })
+      : [{ id: selectedId ?? 'studio', number: '', title: '', summary: '', busy: false, cast: studioCast(state, team, names).map((actor) => actorView(actor, t)) }]
+  const actorName = (actor: string): string => {
+    if (actor === 'lead') return names.lead
+    const known = shownReplay?.actors.find((item) => item.id === actor)
+    return (known?.expert ? names.expert(known.expert) : known?.title) || names.helper
+  }
+  const openStep = (step: ReplayStep): void => {
+    if (step.item) {
+      requestTimelineFocus(step.item)
+      onOpenAgent?.()
+      return
+    }
+    const runId = shownReplay?.actors.find((item) => item.id === step.actor)?.runId
+    if (runId) onOpenRun?.(runId)
+  }
   const inView = building ? (floors.find((floor) => floor.id === focus) ?? null) : floors[0]!
   const signature = JSON.stringify(floors)
   const latest = useRef({ floors, workspaces, building, selectedId })
@@ -176,10 +213,17 @@ function StudioRoom({ state, onOpenRun, onOpenAgent, onOpenSession, nav }: Studi
     sceneRef.current?.setPaused(paused)
   }, [paused, ready])
 
+  // The fish tank: what swims in it depends on the model at work.
+  const model = typeof state.provider?.model === 'string' ? state.provider.model : null
+  useEffect(() => {
+    sceneRef.current?.setModel(model)
+  }, [model, ready])
+
   const overview = building && inView === null
-  const description = overview ? t('studio.buildingHint')
-    : building && inView ? `${inView.number} · ${inView.title}`
-      : t('studio.description')
+  const description = shownReplay ? t('studio.replay.of', { prompt: shownReplay.prompt.slice(0, 60) })
+    : overview ? t('studio.buildingHint')
+      : building && inView ? `${inView.number} · ${inView.title}`
+        : t('studio.description')
   return (
     <main className="route-column reading-surface studio-route" aria-label={t('studio.title')}>
       <header className="route-header studio-header">
@@ -190,6 +234,10 @@ function StudioRoom({ state, onOpenRun, onOpenAgent, onOpenSession, nav }: Studi
         </div>
         <div className="studio-actions">
           {nav}
+          <button type="button" className="icon-button studio-replay-button" aria-pressed={replaying} aria-label={t(replaying ? 'studio.replay.exit' : 'studio.replay.title')}
+            title={t(replaying ? 'studio.replay.exit' : 'studio.replay.title')} disabled={!client || !selectedId} onClick={() => setReplaying((value) => !value)}>
+            <History size={15} />
+          </button>
           {building ? (
             <button type="button" className="icon-button" aria-pressed={overview} aria-label={t('studio.building')} title={t('studio.building')}
               disabled={!ready || overview} onClick={() => setFocus(null)}><Building2 size={15} /></button>
@@ -208,7 +256,11 @@ function StudioRoom({ state, onOpenRun, onOpenAgent, onOpenSession, nav }: Studi
         {unsupported ? <p className="studio-unsupported" role="status">{t('studio.unsupported')}</p> : null}
         {ready ? <p className="studio-hint">{t(overview ? 'studio.buildingClick' : 'studio.hint')}</p> : null}
       </div>
-      {overview ? (
+      {replaying ? (
+        <ReplayPanel turns={replay.data?.turns ?? []} replay={shownReplay} loading={replay.loading} failed={replay.failed}
+          at={replay.at} playing={replay.playing} speed={replay.speed} actorName={actorName}
+          onTurn={replay.setTurnId} onSeek={replay.seek} onPlaying={replay.setPlaying} onSpeed={replay.setSpeed} onOpenStep={openStep} />
+      ) : overview ? (
         <ul className="studio-roster studio-floor-list" aria-label={t('studio.floors')}>
           {[...floors].reverse().map((floor) => (
             <li key={floor.id} data-busy={floor.busy ? 'true' : 'false'}>

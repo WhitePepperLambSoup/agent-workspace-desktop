@@ -1,15 +1,16 @@
 import * as THREE from 'three'
 
-import { Batch, boxShape, coneShape, cylinderShape, dodecaShape, sphereShape, torusShape } from '../mesh-kit'
+import { Batch, boxShape, coneShape, cylinderShape, dodecaShape, shapeDetail, sphereShape, torusShape } from '../mesh-kit'
 import type { PlaceId } from './models'
+import { fineBlockTrim, fineCraneJib, fineCraneMast, fineFountain, fineFrame, fineLibraryFront, fineStreetLamp, fineTree } from './fine-places'
 import { disposeGeometry, floor, group, palette } from './kit'
 import type { PlaceBuilder, PlaceLabel, Vec } from './stage'
 import type { PlaceInput } from './types'
 
 /**
  * The campus: the studio's building in the middle, the library, the building site, the server
- * room, the duty room and the front desk around it on one lawn. Where something is going on, the
- * windows are lit; the signs say what. A click on a building (or its sign) goes in.
+ * room, the duty room, the control room and the front desk around it on one lawn. Where something
+ * is going on, the windows are lit; the signs say what. A click on a building (or its sign) goes in.
  */
 
 export type CampusPlace = Exclude<PlaceId, 'campus'>
@@ -33,7 +34,8 @@ const SPOTS: Record<CampusPlace, { x: number; z: number; top: number }> = {
   site: { x: 9, z: -4.5, top: 2.6 },
   servers: { x: -9, z: 4.5, top: 2.3 },
   duty: { x: 9, z: 4.5, top: 4.4 },
-  desk: { x: 0, z: 7.5, top: 2.9 },
+  desk: { x: 5.2, z: 7.8, top: 2.9 },
+  control: { x: -5.2, z: 7.8, top: 3.0 },
 }
 const STOREY = 1.15
 
@@ -44,6 +46,7 @@ export const buildCampus: PlaceBuilder<PlaceInput<CampusModel>> = (context) => {
   const lawn = floor('lawn', dark, GROUND, 6)
   root.add(lawn.mesh)
 
+  const fine = shapeDetail() === 'high'
   const batch = new Batch()
   const stone = dark ? '#5d5a56' : '#e4ded4'
   // Paths from the plaza to every door, and the plaza.
@@ -52,15 +55,27 @@ export const buildCampus: PlaceBuilder<PlaceInput<CampusModel>> = (context) => {
     const length = Math.hypot(spot.x, spot.z)
     batch.add(boxShape(1.1, 0.035, length), stone, { x: spot.x / 2, y: 0.018, z: spot.z / 2, ry: Math.atan2(spot.x, spot.z) }, 'matte', false)
   }
-  batch.add(cylinderShape(0.9, 1.0, 0.3, 24), dark ? '#6f6b66' : '#cfc8bc', { y: 0.15 }, 'satin')
-  batch.add(cylinderShape(0.75, 0.75, 0.04, 24), dark ? '#2d4f73' : '#7fb6d6', { y: 0.3 }, 'glass', false)
+  if (fine) {
+    fineFountain(batch, dark ? '#6f6b66' : '#cfc8bc', dark ? '#2d4f73' : '#7fb6d6')
+  } else {
+    batch.add(cylinderShape(0.9, 1.0, 0.3, 24), dark ? '#6f6b66' : '#cfc8bc', { y: 0.15 }, 'satin')
+    batch.add(cylinderShape(0.75, 0.75, 0.04, 24), dark ? '#2d4f73' : '#7fb6d6', { y: 0.3 }, 'glass', false)
+  }
   // Street lamps around the plaza.
   for (const [x, z] of [[-3.5, -2.5], [3.5, -2.5], [-3.5, 3.0], [3.5, 3.0]] as const) {
+    if (fine) {
+      fineStreetLamp(batch, c, x, z, dark)
+      continue
+    }
     batch.add(cylinderShape(0.05, 0.07, 2.5, 8), c.metal, { x, y: 1.25, z }, 'metal')
     batch.add(sphereShape(0.16, 10, 8), '#ffe2a8', { x, y: 2.6, z }, dark ? 'glow' : 'satin', false)
   }
   // Trees around the lawn.
   for (const [x, z, s] of [[-13, -8.5, 1], [-5, -9, 0.8], [5, -9, 0.9], [13, -8.5, 1], [-13, 0, 0.9], [13, 0, 1], [-12.5, 9.5, 1], [-5, 10, 0.8], [5, 10, 0.9], [12.5, 9.5, 1], [-4.5, 2.2, 0.7], [4.5, 2.2, 0.7]] as const) {
+    if (fine) {
+      fineTree(batch, c.leaf, c.leafLight, x, z, s, Math.abs(x * 3 + z))
+      continue
+    }
     batch.add(cylinderShape(0.08 * s, 0.11 * s, 0.9 * s, 8), '#5b4636', { x, y: 0.45 * s, z }, 'matte')
     batch.add(dodecaShape(0.6 * s), c.leaf, { x, y: 1.15 * s, z }, 'matte')
     batch.add(dodecaShape(0.42 * s), c.leafLight, { x: x + 0.25 * s, y: 1.45 * s, z: z - 0.1 }, 'matte')
@@ -72,11 +87,16 @@ export const buildCampus: PlaceBuilder<PlaceInput<CampusModel>> = (context) => {
   // The library: steps, columns, a pediment.
   {
     const { x, z } = SPOTS.library
-    batch.add(boxShape(5.2, 0.3, 3.6, 0.03), stone, { x, y: 0.15, z }, 'matte')
-    batch.add(boxShape(4.6, 2.2, 2.8, 0.03), wall, { x, y: 1.4, z: z - 0.2 }, 'satin')
-    for (let index = 0; index < 6; index += 1) batch.add(cylinderShape(0.13, 0.15, 2.2, 12), stone, { x: x - 2.0 + index * 0.8, y: 1.4, z: z + 1.45 }, 'satin')
-    batch.add(boxShape(5.0, 0.25, 3.3, 0.02), stone, { x, y: 2.62, z }, 'satin')
-    batch.add(coneShape(2.9, 0.75, 4), roof, { x, y: 3.1, z, ry: Math.PI / 4, sz: 0.62 }, 'satin')
+    if (fine) {
+      fineLibraryFront(batch, x, z, stone, wall, roof)
+      for (const dx of [-1.2, 0, 1.2]) fineFrame(batch, x + dx, 1.5, z + 1.215, 0.7, 1.0, stone)
+    } else {
+      batch.add(boxShape(5.2, 0.3, 3.6, 0.03), stone, { x, y: 0.15, z }, 'matte')
+      batch.add(boxShape(4.6, 2.2, 2.8, 0.03), wall, { x, y: 1.4, z: z - 0.2 }, 'satin')
+      for (let index = 0; index < 6; index += 1) batch.add(cylinderShape(0.13, 0.15, 2.2, 12), stone, { x: x - 2.0 + index * 0.8, y: 1.4, z: z + 1.45 }, 'satin')
+      batch.add(boxShape(5.0, 0.25, 3.3, 0.02), stone, { x, y: 2.62, z }, 'satin')
+      batch.add(coneShape(2.9, 0.75, 4), roof, { x, y: 3.1, z, ry: Math.PI / 4, sz: 0.62 }, 'satin')
+    }
   }
   // The building site: a fence, small buildings, a crane.
   {
@@ -86,9 +106,15 @@ export const buildCampus: PlaceBuilder<PlaceInput<CampusModel>> = (context) => {
     for (const [dx, dz, h, colour] of [[-1.5, -0.8, 1.2, '#5b7db1'], [-0.7, -0.9, 0.8, '#4f8a5b'], [-1.4, 0.6, 0.6, '#e3dccb'], [-0.5, 0.5, 1.5, '#5b7db1'], [0.4, 0.9, 0.5, '#9aa1ab']] as const) {
       batch.add(boxShape(0.6, h, 0.6, 0.02), colour, { x: x + dx, y: h / 2, z: z + dz }, 'satin')
     }
-    batch.add(boxShape(0.14, 3.6, 0.14), '#e0a13a', { x: x + 1.6, y: 1.8, z: z - 1.2 }, 'metal')
-    batch.add(boxShape(4.0, 0.12, 0.14), '#e0a13a', { x: x + 0.4, y: 3.6, z: z - 1.2 }, 'metal')
-    batch.add(cylinderShape(0.01, 0.01, 1.4, 4), '#2a2d35', { x: x - 1.2, y: 2.9, z: z - 1.2 }, 'metal', false)
+    if (fine) {
+      fineCraneMast(batch, x + 1.6, z - 1.2, 3.6)
+      batch.within({ x: x + 1.6, y: 3.6, z: z - 1.2, sx: 0.62, sy: 0.62, sz: 0.62 }, () => fineCraneJib(batch, dark))
+      batch.add(cylinderShape(0.006, 0.006, 1.4, 5), '#2a2d35', { x: x - 0.9, y: 2.9, z: z - 1.2 }, 'metal', false)
+    } else {
+      batch.add(boxShape(0.14, 3.6, 0.14), '#e0a13a', { x: x + 1.6, y: 1.8, z: z - 1.2 }, 'metal')
+      batch.add(boxShape(4.0, 0.12, 0.14), '#e0a13a', { x: x + 0.4, y: 3.6, z: z - 1.2 }, 'metal')
+      batch.add(cylinderShape(0.01, 0.01, 1.4, 4), '#2a2d35', { x: x - 1.2, y: 2.9, z: z - 1.2 }, 'metal', false)
+    }
   }
   // The server room: a low block with vents.
   {
@@ -98,6 +124,11 @@ export const buildCampus: PlaceBuilder<PlaceInput<CampusModel>> = (context) => {
     for (let index = 0; index < 3; index += 1) batch.add(cylinderShape(0.3, 0.3, 0.25, 16), '#8a919c', { x: x - 1.4 + index * 1.4, y: 2.15, z }, 'metal')
     for (let slat = 0; slat < 6; slat += 1) batch.add(boxShape(2.2, 0.04, 0.02), '#8a919c', { x: x + 0.8, y: 0.6 + slat * 0.15, z: z + 1.61 }, 'metal', false)
     batch.add(boxShape(0.8, 1.4, 0.04), c.metal, { x: x - 1.6, y: 0.7, z: z + 1.61 }, 'metal', false)
+    if (fine) {
+      fineBlockTrim(batch, { x, z, width: 5.0, depth: 3.2, height: 1.9 }, dark ? '#4a505e' : '#d9dde3', roof)
+      fineFrame(batch, x - 1.6, 0.72, z + 1.62, 0.8, 1.4, '#6b7280')
+      for (const dx of [-1.4, 0, 1.4]) batch.add(boxShape(0.5, 0.03, 0.5, 0.006), '#6b7280', { x: x + dx, y: 2.05, z }, 'metal', false)
+    }
   }
   // The duty room: a house with a clock tower.
   {
@@ -109,6 +140,12 @@ export const buildCampus: PlaceBuilder<PlaceInput<CampusModel>> = (context) => {
     batch.add(cylinderShape(0.38, 0.38, 0.04, 24), '#fbfaf7', { x: x + 1.2, y: 3.0, z: z + 1.11, rx: Math.PI / 2 }, 'satin', false)
     batch.add(torusShape(0.38, 0.03, Math.PI * 2, 6, 24), '#3b3b40', { x: x + 1.2, y: 3.0, z: z + 1.13 }, 'metal', false)
     batch.add(boxShape(0.6, 1.2, 0.04), c.wood, { x: x - 0.5, y: 0.6, z: z + 1.51 }, 'satin', false)
+    if (fine) {
+      fineBlockTrim(batch, { x, z, width: 3.8, depth: 3.0, height: 1.8 }, wall, roof)
+      fineFrame(batch, x - 0.5, 0.62, z + 1.52, 0.6, 1.2, stone)
+      fineFrame(batch, x - 0.5, 1.2, z + 1.52, 0.9, 0.6, stone)
+      for (const y of [1.2, 2.3, 3.45]) batch.add(boxShape(1.04, 0.05, 1.04, 0.008), stone, { x: x + 1.2, y, z: z + 0.6 }, 'satin', false)
+    }
   }
   // The front desk: a gatehouse with a mast.
   {
@@ -117,6 +154,29 @@ export const buildCampus: PlaceBuilder<PlaceInput<CampusModel>> = (context) => {
     batch.add(boxShape(4.4, 0.14, 2.8, 0.03), roof, { x, y: 1.77, z: z + 0.1 }, 'satin')
     batch.add(boxShape(1.6, 1.3, 0.04), glass, { x: x + 0.8, y: 0.75, z: z + 1.21 }, 'glass', false)
     batch.add(cylinderShape(0.04, 0.06, 1.8, 8), c.metal, { x: x - 1.5, y: 2.7, z }, 'metal')
+    if (fine) {
+      fineBlockTrim(batch, { x, z, width: 4.0, depth: 2.4, height: 1.7 }, wall, roof)
+      fineFrame(batch, x + 0.8, 0.75, z + 1.22, 1.6, 1.3, '#6b7280')
+      fineFrame(batch, x - 1.0, 1.0, z + 1.22, 1.0, 0.6, stone)
+      for (const side of [-1, 1]) batch.add(cylinderShape(0.03, 0.03, 1.6, 12), c.metal, { x: x + 0.8 + side * 1.1, y: 0.8, z: z + 1.48 }, 'metal')
+      batch.add(boxShape(2.5, 0.05, 0.62, 0.01), roof, { x: x + 0.8, y: 1.62, z: z + 1.5 }, 'satin')
+    }
+  }
+  // The control room: a low block with a wall of screens behind its glass front, and an antenna.
+  {
+    const { x, z } = SPOTS.control
+    batch.add(boxShape(4.2, 1.9, 2.6, 0.04), dark ? '#4a5262' : '#dfe3e8', { x, y: 0.95, z }, 'satin')
+    batch.add(boxShape(4.4, 0.12, 2.8, 0.02), roof, { x, y: 1.96, z }, 'satin')
+    batch.add(boxShape(3.5, 1.15, 0.04), glass, { x: x - 0.1, y: 1.0, z: z + 1.31 }, 'glass', false)
+    batch.add(boxShape(0.7, 1.3, 0.04), c.metal, { x: x + 1.7, y: 0.65, z: z + 1.31 }, 'metal', false)
+    batch.add(cylinderShape(0.03, 0.04, 1.1, 8), c.metal, { x: x + 1.4, y: 2.55, z: z - 0.7 }, 'metal')
+    batch.add(cylinderShape(0.32, 0.06, 0.12, 16), c.metal, { x: x + 1.4, y: 3.05, z: z - 0.7, rx: 0.6 }, 'metal')
+    if (fine) {
+      fineBlockTrim(batch, { x, z, width: 4.2, depth: 2.6, height: 1.9 }, dark ? '#4a5262' : '#dfe3e8', roof)
+      fineFrame(batch, x - 0.1, 1.0, z + 1.32, 3.5, 1.15, '#6b7280')
+      fineFrame(batch, x + 1.7, 0.67, z + 1.32, 0.7, 1.3, '#6b7280')
+      for (const dx of [-1.15, 0, 1.15]) batch.add(boxShape(0.03, 1.16, 0.03), '#6b7280', { x: x - 0.1 + dx + 0.57, y: 1.0, z: z + 1.34 }, 'metal', false)
+    }
   }
   // The studio: a plinth; its floors are added by the model.
   batch.add(boxShape(4.8, 0.35, 4.8, 0.04), stone, { x: SPOTS.studio.x, y: 0.17, z: SPOTS.studio.z }, 'matte')
@@ -143,6 +203,8 @@ export const buildCampus: PlaceBuilder<PlaceInput<CampusModel>> = (context) => {
   windows('servers', [[at.servers.x - 1.4, 1.75, at.servers.z + 1.62, 2.0, 0.06, 0.02], [at.servers.x + 0.8, 1.75, at.servers.z + 1.62, 2.0, 0.06, 0.02]])
   windows('duty', [[at.duty.x - 0.5, 1.2, at.duty.z + 1.52, 0.9, 0.6, 0.03], [at.duty.x + 0.9, 1.0, at.duty.z - 1.52, 0.9, 0.6, 0.03]])
   windows('desk', [[at.desk.x - 1.0, 1.0, at.desk.z + 1.22, 1.0, 0.6, 0.03], [at.desk.x - 1.5, 3.65, at.desk.z, 0.12, 0.12, 0.12]])
+  // Behind the glass, the screens: three across.
+  windows('control', [-1.15, 0, 1.15].map((dx): [number, number, number, number, number, number] => [at.control.x - 0.1 + dx, 1.1, at.control.z + 1.28, 1.0, 0.55, 0.02]))
   const studioLight = new THREE.MeshBasicMaterial({ color: c.dim, toneMapped: false })
   lights.set('studio', studioLight)
 
@@ -178,6 +240,13 @@ export const buildCampus: PlaceBuilder<PlaceInput<CampusModel>> = (context) => {
       const y = 0.35 + level * STOREY
       building.add(boxShape(4.0, STOREY - 0.08, 4.0, 0.03), wall, { x, y: y + STOREY / 2, z }, 'satin')
       building.add(boxShape(4.1, 0.08, 4.1, 0.02), c.trim, { x, y: y + STOREY - 0.04, z }, 'satin', false)
+      if (fine) {
+        // Mullions over each floor's band of windows, on the two sides that show.
+        for (let bar = -4; bar <= 4; bar += 1) {
+          building.add(boxShape(0.03, 0.5, 0.02), c.trim, { x: x + bar * 0.42, y: y + STOREY / 2, z: z + 2.03 }, 'satin', false)
+          building.add(boxShape(0.02, 0.5, 0.03), c.trim, { x: x + 2.03, y: y + STOREY / 2, z: z + bar * 0.42 }, 'satin', false)
+        }
+      }
     }
     building.add(boxShape(4.3, 0.2, 4.3, 0.03), roof, { x, y: 0.35 + count * STOREY + 0.1, z }, 'satin')
     building.add(cylinderShape(0.04, 0.05, 1.2, 8), c.metal, { x: x + 1.5, y: 0.35 + count * STOREY + 0.8, z: z - 1.5 }, 'metal')

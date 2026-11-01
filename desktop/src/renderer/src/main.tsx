@@ -2,6 +2,8 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import { App } from './app/App'
+import { endBootScreen } from './app/boot-screen'
+import { ErrorBoundary, installUiErrorLogging, WindowCrash } from './app/ErrorBoundary'
 import { WorkbenchBridgeClient } from './bridge/client'
 import { installSpringTokens } from './design/motion'
 import { I18nProvider } from './i18n/I18nProvider'
@@ -19,6 +21,7 @@ import './design/desktop-transparency.css'
 
 const root = document.getElementById('root')
 if (!root) throw new Error('renderer_root_missing')
+installUiErrorLogging()
 installSpringTokens()
 const workbenchBridge = new WorkbenchBridgeClient(window.agentWorkspace)
 
@@ -26,13 +29,17 @@ const render = (): void => {
   createRoot(root).render(
     <StrictMode>
       <I18nProvider>
-        <App client={workbenchBridge} />
+        <ErrorBoundary where="window" fallback={(error) => <WindowCrash error={error} />}>
+          <App client={workbenchBridge} />
+        </ErrorBoundary>
       </I18nProvider>
     </StrictMode>,
   )
 }
 
 // The chosen language's messages arrive before the first paint (Simplified Chinese is built in).
-void loadMessages(loadLocale()).then(render, render)
+const rendered = loadMessages(loadLocale()).then(render, render)
 
-void workbenchBridge.start().catch(() => workbenchBridge.store.markDisconnected())
+const started = workbenchBridge.start().catch(() => workbenchBridge.store.markDisconnected())
+
+void endBootScreen(workbenchBridge.store, started, rendered)

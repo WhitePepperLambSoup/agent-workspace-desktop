@@ -46,6 +46,7 @@ import { LiquidGlassSurfaces } from '../effects/liquid-glass/LiquidGlassSurfaces
 import { GatewayCommandError, type WorkbenchBridgeClient } from '../bridge/client'
 import { CommandPalette } from '../commands/CommandPalette'
 import { createContributionRegistry, type ContributionRegistry } from '../extensions/registry'
+import { ErrorBoundary, PanelCrash, RouteCrash } from '../app/ErrorBoundary'
 import { Inspector } from '../inspector/Inspector'
 import { useOptionalI18n, useProvidedI18n, useText } from '../i18n/I18nProvider'
 import type { I18nValue } from '../i18n/I18nProvider'
@@ -56,6 +57,7 @@ import type { ResourceCapability } from '../markdown/resource-policy'
 import { createWorkbenchStore, type WorkbenchState } from '../state/workbench-store'
 import { filterCanonicalStreams } from '../state/projection-parsers'
 import { ApprovalShelf } from '../timeline/ApprovalShelf'
+import { approvalItems } from '../timeline/approval-items'
 import { SubagentStrip } from '../timeline/SubagentStrip'
 import { DeviceNotices } from '../devices/DeviceNotices'
 import { PhoneJobStrip } from '../devices/PhoneJobStrip'
@@ -76,6 +78,9 @@ import { OPEN_IN_EDITOR_EVENT, PREVIEW_EVENT, requestPreview, type PreviewReques
 import { RouteLoading, RouteOutlet, type ActivityRoute } from './RouteOutlet'
 import { LazySettingsRoute, preloadRoutes } from './lazy-routes'
 import { confirmAutonomyChange } from '../settings/autonomy'
+import { DatabaseRecovery } from '../settings/DataSettings'
+import { UpdateNotice } from '../settings/UpdateNotice'
+import { SetupGuide, setupNeeded } from '../settings/SetupGuide'
 import { SessionSidebar } from '../workspace/SessionSidebar'
 import { droppedFolderPath } from '../workspace/folder-drop'
 import { useAttentionNotifications } from '../notifications/attention'
@@ -83,6 +88,8 @@ import { useVoicePreference } from '../voice/voice'
 import { QuickActions } from '../office/QuickActions'
 import { shortcutFromEvent, useShortcuts } from '../shortcuts/keymap'
 import { useDrawerController } from './useDrawerController'
+
+const FIRST_SESSION_DELAY_MS = 1000
 
 const ACTIVITY_IDS = ['agent', 'studio', 'runs', 'workspace', 'knowledge', 'schedules', 'search', 'changes', 'jobs', 'operations', 'settings'] as const
 type ActivityId = (typeof ACTIVITY_IDS)[number]
@@ -192,6 +199,16 @@ function timelineEntries(timeline: WorkbenchState['timeline'], tx: (text: string
       })
       continue
     }
+    if (item.type === 'content.untrusted') {
+      entries.push({
+        id: item.id,
+        type: 'notice',
+        kind: 'untrusted',
+        tool: stringFact(item.data.tool, '') || undefined,
+        message: stringFact(item.data.sample, '') || undefined,
+      })
+      continue
+    }
     if (item.type === 'session.forked') {
       entries.push({
         id: item.id,
@@ -239,29 +256,6 @@ function phoneOrigin(value: JsonValue | undefined): { device: string; labels: st
   return { device: typeof value.device === 'string' ? value.device : '', labels }
 }
 
-function approvalEntries(state: WorkbenchState, tx: (text: string) => string): ApprovalItem[] {
-  return Object.entries(state.approvals)
-    .filter(([, approval]) => approval.sessionId == null || approval.sessionId === state.selectedSession?.id)
-    .map(([requestId, approval]) => ({
-      requestId,
-      title: stringFact(approval.toolName ?? approval.tool ?? approval.name, tx('Approval required')),
-      detail: stringFact(approval.summary ?? approval.reason, tx('Review the requested action')),
-      supportsSessionScope: approval.supportsSessionScope === true,
-      ...(typeof approval.subagent === 'string' && approval.subagent ? { subagent: approval.subagent } : {}),
-      ...approvalPlan(approval.plan, approval.planTotal),
-    }))
-}
-
-function approvalPlan(value: JsonValue | undefined, total: JsonValue | undefined): Pick<ApprovalItem, 'plan' | 'planTotal'> {
-  if (!Array.isArray(value)) return {}
-  const plan = value.flatMap((item) => {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) return []
-    const { action, path, to } = item as Record<string, JsonValue>
-    if (typeof action !== 'string' || typeof path !== 'string') return []
-    return [typeof to === 'string' ? { action, path, to } : { action, path }]
-  })
-  return plan.length ? { plan, planTotal: typeof total === 'number' ? total : plan.length } : {}
-}
 
 const ACTIVITIES: readonly {
   id: ActivityId
@@ -642,7 +636,7 @@ function ConversationSurface({
   const [forking, setForking] = useState(false)
   const attachmentScopeRef = useRef('')
   const entries = useMemo(() => timelineEntries(state.timeline, tx), [state.timeline, tx])
-  const approvals = approvalEntries(state, tx)
+  const approvals = approvalItems(state, tx)
   const timelineSessionId = typeof state.selectedSession?.id === 'string' ? state.selectedSession.id : null
   const timelineActions = useMemo<TimelineActions>(() => ({
     ...(client && typeof client.undoFileBatch === 'function' ? {
@@ -747,7 +741,7 @@ function ConversationSurface({
     return commands
   }, [client, locale, onCreateSession, onNavigate, routeVisible, selectedSessionId])
   const loadMentionPaths = useMemo(() => client && workspacePath ? async (): Promise<readonly string[]> => {
-    const response = await client.getWorkspaceFilesTree('', 8, 3000)
+    const response = await client.getWorkspaceFilesTree('', 8, 2000)
     const files = (response.payload as { files?: unknown }).files
     return Array.isArray(files)
       ? files.flatMap((file) => file && typeof file === 'object' && (file as { type?: unknown }).type === 'file' &&
@@ -849,6 +843,22 @@ function ConversationSurface({
     : undefined, [client, selectedSessionId])
 
   const noticeActionsFor = (entry: NoticeEntry): NoticeActions | undefined => {
+    if (entry.kind === 'failed') {
+      // Only the turn that just stopped can be sent again; its request is the last message sent.
+      const latest = entries[entries.length - 1]?.id === entry.id
+      const request = latest
+        ? [...entries].reverse().find((item) => item.type === 'message' && item.role === 'user')
+        : undefined
+      return {
+        onOpenSettings: onNavigate ? () => onNavigate('settings') : undefined,
+        onRetry: client && request?.type === 'message' ? () => {
+          setActionError(null)
+          void client.startTurn(request.text, [], [], undefined, selectedSessionId || null)
+            .catch(() => setActionError('timeline.retryFailed'))
+        } : undefined,
+        retryDisabled: !composerReady || Boolean(composerTurnId),
+      }
+    }
     if (entry.kind !== 'forked') return undefined
     const source = entry.sourceSessionId ? state.sessions.find((session) => session.id === entry.sourceSessionId) : undefined
     return {
@@ -866,6 +876,21 @@ function ConversationSurface({
       .catch(() => setActionError('workbench.sessionCreateFailed'))
       .finally(() => setCreatingSession(false))
   }
+
+  // A folder with no conversation gets one, or there would be nothing to send a message to; after
+  // a moment, in case its own conversations are on their way or one is being made anyway.
+  const firstSessionFor = useRef<string | null>(null)
+  const needsFirstSession = Boolean(onCreateSession && workspacePath && state.provider && !state.selectedSession
+    && state.sessions.length === 0 && !state.runtime.stale && (state.bootstrapVersion ?? 0) > 0)
+  useEffect(() => {
+    if (!needsFirstSession || firstSessionFor.current === workspacePath) return undefined
+    const timer = window.setTimeout(() => {
+      firstSessionFor.current = workspacePath
+      createSession()
+    }, FIRST_SESSION_DELAY_MS)
+    return () => window.clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once for each folder
+  }, [needsFirstSession, workspacePath])
 
   const importAttachments = (load: () => Promise<readonly AttachmentCapability[]>): void => {
     const requestedDraftScope = composerScope
@@ -962,9 +987,13 @@ function ConversationSurface({
         )}
       </div>
       <div className="conversation-reading-stage">
+      {state.runtime.state === 'failed' && typeof client?.dataStatus === 'function' ? <DatabaseRecovery client={client} /> : null}
+      {client && entries.length === 0 && setupNeeded(state) ? <div className="conversation-reading setup-scroll">{typeof client.dataStatus === 'function'
+        ? <DatabaseRecovery client={client}><SetupGuide state={state} client={client} onOpenSettings={() => onNavigate?.('settings')} /></DatabaseRecovery>
+        : <SetupGuide state={state} client={client} onOpenSettings={() => onNavigate?.('settings')} />}</div> : null}
       <TimelineWorkspaceContext.Provider value={workspacePath || null}>
       <TimelineActionsContext.Provider value={timelineActions}>
-      <ConversationTimeline
+      {client && entries.length === 0 && setupNeeded(state) ? null : <ConversationTimeline
         entries={entries}
         scopeKey={attachmentScope}
         registry={registry}
@@ -988,7 +1017,7 @@ function ConversationSurface({
         onSendToPhone={phoneSend.available ? (text) => phoneSend.send({ kind: 'text', text }) : undefined}
         noticeActionsFor={noticeActionsFor}
         onOpenExternal={typeof externalOpener === 'function' ? openExternal : undefined}
-      />
+      />}
       </TimelineActionsContext.Provider>
       </TimelineWorkspaceContext.Provider>
       </div>
@@ -1049,6 +1078,7 @@ function ConversationSurface({
         <ApprovalShelf
           approvals={approvals}
           resolve={(requestId, scope) => client?.resolveApproval(requestId, scope) ?? Promise.reject(new Error('runtime_unavailable'))}
+          trust={typeof client?.trustProvider === 'function' ? (endpoint) => client.trustProvider(endpoint) : undefined}
         />
         {actionError ? <p className="conversation-action-error route-error" role="status">{translate(locale, actionError)}</p> : null}
         <Composer
@@ -1299,7 +1329,8 @@ export function Workbench({ appearance, nativeStatus, onAppearanceChange, client
   const ownedRegistry = useMemo(createContributionRegistry, [])
   const commandRegistry = registry ?? ownedRegistry
   const sidebarOpen = drawer.narrow ? drawer.active === 'sessions' : desktopSidebarOpen
-  const inspectorOpen = drawer.narrow ? drawer.active === 'inspector' : desktopInspectorOpen
+  // The first-use setup has the room to itself; the panel has nothing to show until it is done.
+  const inspectorOpen = drawer.narrow ? drawer.active === 'inspector' : desktopInspectorOpen && !(activity === 'agent' && setupNeeded(runtimeState))
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth)
   const previousViewportWidth = useRef(window.innerWidth)
   const [preferredPanelWidths, setPreferredPanelWidths] = useState(readPanelWidths)
@@ -1326,6 +1357,9 @@ export function Workbench({ appearance, nativeStatus, onAppearanceChange, client
   useAttentionNotifications(runtimeState, {
     turnFinished: effectiveSettingsI18n.t('notifications.turnFinished'),
     approvalNeeded: effectiveSettingsI18n.t('notifications.approvalNeeded'),
+    turnFailed: effectiveSettingsI18n.t('notifications.turnFailed'),
+    quiet: effectiveSettingsI18n.t('notifications.quiet'),
+    minutes: (minutes) => effectiveSettingsI18n.t('notifications.minutes', { minutes }),
     sessionTitle: (sessionId) => sessionLocation(sessionId).title ?? effectiveSettingsI18n.t('workbench.untitledSession'),
   }, desktopHost ? (notification) => desktopHost.notify(notification) : undefined)
   useEffect(() => {
@@ -1655,31 +1689,33 @@ export function Workbench({ appearance, nativeStatus, onAppearanceChange, client
       onPointerLeave={clearSpecular}
     >
       {studioBackdrop ? (
-        <StudioBackdrop
-          state={runtimeState}
-          viewing={studioView === 'on'}
-          paused={activity === 'studio'}
-          onPick={(actor) => {
-            if (actor.lead) {
+        <ErrorBoundary where="studio-backdrop" fallback={() => null} onError={() => setBackdropFailed(true)}>
+          <StudioBackdrop
+            state={runtimeState}
+            viewing={studioView === 'on'}
+            paused={activity === 'studio'}
+            onPick={(actor) => {
+              if (actor.lead) {
+                leaveStudio()
+                selectActivity('agent')
+              } else if (actor.runId) {
+                openRunFromRoute(actor.runId)
+              }
+            }}
+            client={client}
+            onOpenRoute={openRouteFromStudio}
+            onOpenRun={openRunFromRoute}
+            onLeave={() => {
               leaveStudio()
               selectActivity('agent')
-            } else if (actor.runId) {
-              openRunFromRoute(actor.runId)
-            }
-          }}
-          client={client}
-          onOpenRoute={openRouteFromStudio}
-          onOpenRun={openRunFromRoute}
-          onLeave={() => {
-            leaveStudio()
-            selectActivity('agent')
-          }}
-          onOpenSession={(workspace, sessionId) => {
-            leaveStudio()
-            openSessionFromRoute(workspace, sessionId)
-          }}
-          onFailure={() => setBackdropFailed(true)}
-        />
+            }}
+            onOpenSession={(workspace, sessionId) => {
+              leaveStudio()
+              openSessionFromRoute(workspace, sessionId)
+            }}
+            onFailure={() => setBackdropFailed(true)}
+          />
+        </ErrorBoundary>
       ) : <LiquidBackdrop appearance={resolved} />}
       <LiquidGlassSurfaces enabled={resolved.effectiveRefraction} />
       <TitleStrip
@@ -1704,14 +1740,16 @@ export function Workbench({ appearance, nativeStatus, onAppearanceChange, client
         studio={studioBackdrop ? { viewing: studioView === 'on', onToggle: () => (studioView === 'on' ? leaveStudio() : setStudioView('on')) } : undefined}
       />
       <ActivityRail active={activity} onSelect={(id) => selectActivity(id)} onToggleSessions={toggleSessions} sessionsOpen={sidebarOpen} sessionsToggleLabel={effectiveSettingsI18n.t('command.toggleSessions')} settingsLabel={effectiveSettingsI18n.t('settings.title')} settingsShortcutLabel={effectiveSettingsI18n.t('command.route.settings')} mode={interfaceMode} unreadLabel={scheduleUnread ? effectiveSettingsI18n.t('workbench.schedulesUnread', { count: scheduleUnread }) : null} />
-      <SessionSidebar
-        open={sidebarOpen}
-        state={runtimeState}
-        client={client}
-        onClose={closeSessions}
-        drawer={drawer.narrow}
-        drawerRef={(element) => drawer.register('sessions', element)}
-      />
+      <ErrorBoundary where="sessions" fallback={(_error, retry) => <PanelCrash className="session-sidebar glass-surface" retry={retry} />}>
+        <SessionSidebar
+          open={sidebarOpen}
+          state={runtimeState}
+          client={client}
+          onClose={closeSessions}
+          drawer={drawer.narrow}
+          drawerRef={(element) => drawer.register('sessions', element)}
+        />
+      </ErrorBoundary>
       <div
         className="panel-resizer panel-resizer--sidebar"
         role="separator"
@@ -1729,35 +1767,39 @@ export function Workbench({ appearance, nativeStatus, onAppearanceChange, client
         onKeyDown={(event) => onPanelKeyDown('sidebar', event)}
         onDoubleClick={() => changePanelWidth('sidebar', DEFAULT_PANEL_WIDTHS.sidebar)}
       />
-      {activity === 'settings' ? (
-        <Suspense fallback={<RouteLoading />}><LazySettingsRoute state={runtimeState} client={client} appearance={appearance} nativeStatus={nativeStatus ?? effectiveSettingsI18n.t('settings.rendererOnly')} onAppearanceChange={onAppearanceChange} registry={commandRegistry} layout={settingsLayout} i18n={effectiveSettingsI18n} interfaceMode={interfaceMode} onInterfaceModeChange={changeInterfaceMode} /></Suspense>
-      ) : activity !== 'agent' ? (
-        <RouteOutlet route={activity as ActivityRoute} state={runtimeState} store={client?.store ?? fallbackStore} client={client} onOpenSession={openSessionFromRoute}
-          onOpenRun={openRunFromRoute} onOpenAgent={openAgentFromRoute} onOpenRoute={openRouteFromStudio} />
-      ) : (
-        <ConversationSurface
+      <ErrorBoundary where={`route:${activity}`} resetKey={activity} fallback={(error, retry) => <RouteCrash error={error} retry={retry} onLeave={activity === 'agent' ? undefined : () => selectActivity('agent')} />}>
+        {activity === 'settings' ? (
+          <Suspense fallback={<RouteLoading />}><LazySettingsRoute state={runtimeState} client={client} appearance={appearance} nativeStatus={nativeStatus ?? effectiveSettingsI18n.t('settings.rendererOnly')} onAppearanceChange={onAppearanceChange} registry={commandRegistry} layout={settingsLayout} i18n={effectiveSettingsI18n} interfaceMode={interfaceMode} onInterfaceModeChange={changeInterfaceMode} /></Suspense>
+        ) : activity !== 'agent' ? (
+          <RouteOutlet route={activity as ActivityRoute} state={runtimeState} store={client?.store ?? fallbackStore} client={client} onOpenSession={openSessionFromRoute}
+            onOpenRun={openRunFromRoute} onOpenAgent={openAgentFromRoute} onOpenRoute={openRouteFromStudio} />
+        ) : (
+          <ConversationSurface
+            state={runtimeState}
+            client={client}
+            reference={referenceMode}
+            registry={commandRegistry}
+            onOpenSessions={toggleSessions}
+            onOpenInspector={toggleInspector}
+            onCreateSession={client?.createSession ? () => client.createSession() : undefined}
+            onOpenRuns={interfaceMode === 'full' ? () => selectActivity('runs') : undefined}
+            onNavigate={selectActivity}
+            routeVisible={routeVisible}
+          />
+        )}
+      </ErrorBoundary>
+      <ErrorBoundary where="inspector" fallback={(_error, retry) => <PanelCrash className="inspector glass-surface" retry={retry} />}>
+        <Inspector
+          open={inspectorOpen}
+          reference={referenceMode}
+          drawer={drawer.narrow}
+          drawerRef={(element) => drawer.register('inspector', element)}
           state={runtimeState}
           client={client}
-          reference={referenceMode}
           registry={commandRegistry}
-          onOpenSessions={toggleSessions}
-          onOpenInspector={toggleInspector}
-          onCreateSession={client?.createSession ? () => client.createSession() : undefined}
-          onOpenRuns={interfaceMode === 'full' ? () => selectActivity('runs') : undefined}
-          onNavigate={selectActivity}
-          routeVisible={routeVisible}
+          onClose={closeInspector}
         />
-      )}
-      <Inspector
-        open={inspectorOpen}
-        reference={referenceMode}
-        drawer={drawer.narrow}
-        drawerRef={(element) => drawer.register('inspector', element)}
-        state={runtimeState}
-        client={client}
-        registry={commandRegistry}
-        onClose={closeInspector}
-      />
+      </ErrorBoundary>
       <div
         className="panel-resizer panel-resizer--inspector"
         role="separator"
@@ -1776,10 +1818,11 @@ export function Workbench({ appearance, nativeStatus, onAppearanceChange, client
         onDoubleClick={() => changePanelWidth('inspector', DEFAULT_PANEL_WIDTHS.inspector)}
       />
       {drawer.narrow && drawer.active ? <button type="button" className="drawer-backdrop" aria-label={effectiveSettingsI18n.t('workbench.closeDrawer')} onClick={() => drawer.close()} /> : null}
-      {documentPreview && client?.previewDocument ? <Suspense fallback={null}><OfficePreviewDialog request={documentPreview} client={client} onClose={() => setDocumentPreview(null)} /></Suspense> : null}
-      {preview ? <Suspense fallback={null}><PreviewSheet key={JSON.stringify(preview)} request={preview} client={client} onClose={() => setPreview(null)} /></Suspense> : null}
+      {documentPreview && client?.previewDocument ? <ErrorBoundary where="document-preview" fallback={() => null} onError={() => setDocumentPreview(null)}><Suspense fallback={null}><OfficePreviewDialog request={documentPreview} client={client} onClose={() => setDocumentPreview(null)} /></Suspense></ErrorBoundary> : null}
+      {preview ? <ErrorBoundary where="preview" fallback={() => null} onError={() => setPreview(null)}><Suspense fallback={null}><PreviewSheet key={JSON.stringify(preview)} request={preview} client={client} onClose={() => setPreview(null)} /></Suspense></ErrorBoundary> : null}
       {paletteOpen ? <CommandPalette registry={commandRegistry} onClose={() => { setPaletteOpen(false); paletteOpener.current?.focus() }} /> : null}
       <DeviceNotices notices={runtimeState.deviceNotices ?? []} />
+      <UpdateNotice />
       <QuickActions client={client && typeof client.quickRun === 'function' ? client : null} />
     </div>
   )

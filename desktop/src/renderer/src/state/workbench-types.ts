@@ -241,6 +241,16 @@ export interface WorkbenchState {
   phoneJobs?: Record<string, PhoneJobView>
   // Files, text and links phones sent while this window is open, newest last.
   deviceNotices?: DeviceNotice[]
+  // By conversation: when this window last saw anything from it (its clock), and how its last
+  // turn ended. Kept while the window is open.
+  sessionActivity?: Record<string, SessionActivity>
+}
+
+export type TurnOutcome = 'completed' | 'failed' | 'cancelled'
+
+export interface SessionActivity {
+  at: number
+  ended?: { outcome: TurnOutcome; at: number }
 }
 
 export interface PhoneJobView {

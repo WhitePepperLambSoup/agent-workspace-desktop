@@ -14,9 +14,11 @@ function toolLabelKey(toolName: string): MessageKey | null {
 interface ApprovalShelfProps {
   approvals: readonly ApprovalItem[]
   resolve: (requestId: string, scope: 'once' | 'session' | null) => Promise<unknown>
+  /** From now on, send to this service without asking. */
+  trust?: (endpoint: string) => Promise<unknown>
 }
 
-export function ApprovalShelf({ approvals, resolve }: ApprovalShelfProps) {
+export function ApprovalShelf({ approvals, resolve, trust }: ApprovalShelfProps) {
   const { t } = useOptionalI18n()
   const [pending, setPending] = useState<ReadonlySet<string>>(() => new Set())
   const [failedRequestId, setFailedRequestId] = useState<string | null>(null)
@@ -74,6 +76,13 @@ export function ApprovalShelf({ approvals, resolve }: ApprovalShelfProps) {
               <button type="button" disabled={disabled} onClick={() => void decide(approval.requestId, null)}>{t('approval.deny')}</button>
               <button type="button" className="approval-primary" disabled={disabled} onClick={() => void decide(approval.requestId, 'once')}>{t('approval.allowOnce')}</button>
               {approval.supportsSessionScope ? <button type="button" disabled={disabled} onClick={() => void decide(approval.requestId, 'session')}>{t('approval.allowSession')}</button> : null}
+              {approval.supportsSessionScope && approval.endpoint && trust ? (
+                <button type="button" disabled={disabled} onClick={() => {
+                  // The answer to this request does not wait on the setting being saved.
+                  void trust(approval.endpoint!).catch(() => undefined)
+                  void decide(approval.requestId, 'session')
+                }}>{t('approval.allowAlways')}</button>
+              ) : null}
             </div>
             {failedRequestId === approval.requestId ? <p className="route-error" role="status">{t('approval.resolveFailed')}</p> : null}
           </article>

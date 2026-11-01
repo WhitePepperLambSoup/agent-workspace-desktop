@@ -17,7 +17,7 @@ import {
 } from './projection-parsers'
 import { mergeTurnInputTimeline, turnInputTimelineFromSnapshot } from './turn-inputs'
 
-import type { BackgroundJobSummary, DeviceNotice, OperationalEventView, OrchestrationView, SessionRuntimeProjection, TerminalView, TimelineItem, WorkbenchState } from './workbench-types'
+import type { BackgroundJobSummary, DeviceNotice, OperationalEventView, OrchestrationView, SessionRuntimeProjection, TerminalView, TimelineItem, TurnOutcome, WorkbenchState } from './workbench-types'
 import { DEVICE_NOTICES_KEPT, withSubagent } from './workbench-types'
 import { approvalsFromPayload, checkResultsFrom, clearEventReplay, mergeDirectorySessions, orchestrationFromPayload, queueTasksFromPayload, recentWorkspacesFromPayload, rememberCurrentWorkspace, runtimeFromPayload, sessionRuntimesFromPayload, subagentsFromPayload, terminalFromPayload, workspaceGroupsFromPayload, workspacePathKey } from './workbench-payloads'
 
@@ -96,6 +96,9 @@ const INITIAL_STATE: WorkbenchState = {
   },
 }
 
+const TURN_ENDINGS: Record<string, TurnOutcome> = { 'turn.completed': 'completed', 'turn.failed': 'failed', 'turn.cancelled': 'cancelled' }
+const ACTIVITY_NOTE_MS = 5_000
+
 export function createWorkbenchStore(options: StoreOptions = {}) {
   let state = structuredClone(INITIAL_STATE)
   let currentModelRequest: {
@@ -163,6 +166,15 @@ export function createWorkbenchStore(options: StoreOptions = {}) {
         queuedTurnCount: numberValue(payload.queuedCount) ?? 0 }
     }
     if (next) state.runtime = { ...state.runtime, activeSessions: { ...state.runtime.activeSessions, [sessionId]: next } }
+    // When each conversation last showed signs of work, and how its last turn ended: the control
+    // room tells a long silence or a failure from steady work. Noted at most every few seconds.
+    const now = Date.now()
+    const seen = state.sessionActivity?.[sessionId]
+    const ending = TURN_ENDINGS[event.type]
+    if (ending || event.type === 'turn.started' || !seen || now - seen.at >= ACTIVITY_NOTE_MS) {
+      const ended = ending ? { outcome: ending, at: now } : event.type === 'turn.started' ? undefined : seen?.ended
+      state.sessionActivity = { ...state.sessionActivity, [sessionId]: ended ? { at: now, ended } : { at: now } }
+    }
   }
 
   const cancelGapCheck = (): void => {
@@ -312,6 +324,8 @@ export function createWorkbenchStore(options: StoreOptions = {}) {
       ...(state.deviceNotices ? { deviceNotices: state.deviceNotices } : {}),
       ...(state.phoneJobs && state.runtime.epoch === epoch ? { phoneJobs: state.phoneJobs } : {}),
       ...(Object.keys(subagents).length > 0 ? { subagents } : {}),
+      // What was last seen of each conversation stays too: a resync tells nothing of it.
+      ...(state.sessionActivity && state.runtime.epoch === epoch ? { sessionActivity: state.sessionActivity } : {}),
     }
     rememberForegroundRuntime()
     for (const page of [...recoverableHistoryPages.values()].sort((left, right) => left.sequence - right.sequence)) {
@@ -1272,9 +1286,10 @@ export function createWorkbenchStore(options: StoreOptions = {}) {
     }
 
     if (belongsToSelection && (event.type === 'turn.failed' || event.type === 'session.forked' ||
+      event.type === 'content.untrusted' ||
       event.type === 'turn.files.changed' || event.type === 'turn.files.undone')) {
-      // Why a turn stopped, where a fork came from and the files a turn changed are shown in the
-      // conversation.
+      // Why a turn stopped, where a fork came from, outside content that talked to the agent and the
+      // files a turn changed are shown in the conversation.
       state.timeline = mergeTimeline(state.timeline, [{
         id: stringValue(payload.eventId) ?? `wire-${event.sequence}`,
         type: event.type,

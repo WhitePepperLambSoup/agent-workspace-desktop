@@ -1,7 +1,7 @@
-import { CircleAlert, GitBranch, GitCompare } from 'lucide-react'
+import { CircleAlert, GitBranch, GitCompare, ShieldAlert } from 'lucide-react'
 
 import { useOptionalI18n } from '../i18n/I18nProvider'
-import { FAILURE_KEYS, failureKind } from './turn-failure'
+import { FAILURE_KEYS, failureKind, type FailureKind } from './turn-failure'
 import type { NoticeEntry } from './types'
 
 export interface NoticeActions {
@@ -9,7 +9,15 @@ export interface NoticeActions {
   sourceTitle?: string
   onOpenSource?: () => void
   onShowComparison?: () => void
+  /** Settings, for a stop only they can lift (a key, a balance, a limit). */
+  onOpenSettings?: () => void
+  /** Send the request again, for the turn that just stopped. */
+  onRetry?: () => void
+  retryDisabled?: boolean
 }
+
+const SETTINGS_FAILURES = new Set<FailureKind>(['auth', 'billing', 'cost', 'tokens'])
+const RETRY_FAILURES = new Set<FailureKind>(['rateLimit', 'network', 'provider', 'other', 'egress'])
 
 export function NoticeRow({ entry, actions }: { entry: NoticeEntry; actions?: NoticeActions }) {
   const { t } = useOptionalI18n()
@@ -20,10 +28,34 @@ export function NoticeRow({ entry, actions }: { entry: NoticeEntry; actions?: No
         <CircleAlert size={14} aria-hidden="true" />
         <div className="timeline-notice-body">
           <span>{t(FAILURE_KEYS[kind])}</span>
+          <span className="timeline-notice-actions">
+            {SETTINGS_FAILURES.has(kind) && actions?.onOpenSettings ? (
+              <button type="button" onClick={actions.onOpenSettings}>{t('notice.openSettings')}</button>
+            ) : null}
+            {RETRY_FAILURES.has(kind) && actions?.onRetry ? (
+              <button type="button" disabled={actions.retryDisabled} onClick={actions.onRetry}>{t('notice.retry')}</button>
+            ) : null}
+          </span>
           {entry.message ? (
             <details>
               <summary>{t('notice.details')}</summary>
               <code>{entry.message}</code>
+            </details>
+          ) : null}
+        </div>
+      </div>
+    )
+  }
+  if (entry.kind === 'untrusted') {
+    return (
+      <div className="timeline-notice" data-kind="untrusted" role="note">
+        <ShieldAlert size={14} aria-hidden="true" />
+        <div className="timeline-notice-body">
+          <span>{t('notice.untrusted')}</span>
+          {entry.message ? (
+            <details>
+              <summary>{t('notice.details')}</summary>
+              <code>{entry.tool ? `${entry.tool}: ` : ''}{entry.message}</code>
             </details>
           ) : null}
         </div>

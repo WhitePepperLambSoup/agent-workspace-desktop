@@ -2,9 +2,10 @@ import * as THREE from 'three'
 
 import { lookFor } from '../cast'
 import type { Place } from '../layout'
-import { Batch, boxShape, cylinderShape } from '../mesh-kit'
+import { Batch, boxShape, cylinderShape, shapeDetail } from '../mesh-kit'
 import { FloorGrid } from '../paths'
 import { SERVER_RACKS, type ServerModel, type ServerRack } from './models'
+import { fineCooler, fineRack } from './fine-places'
 import { ROOM_BOX, desk, disposeGeometry, floor, group, palette, walls } from './kit'
 import type { CrowdActor, PlaceBuilder, PlaceLabel } from './stage'
 import type { PlaceInput } from './types'
@@ -38,10 +39,22 @@ export const buildServers: PlaceBuilder<PlaceInput<ServerModel>> = (context) => 
   batch.add(boxShape(10.5, 0.06, 0.4), c.metal, { y: 2.35, z: RACK.z }, 'metal', false)
   for (let x = -5; x <= 5; x += 0.5) batch.add(boxShape(0.03, 0.08, 0.4), c.metal, { x, y: 2.39, z: RACK.z }, 'metal', false)
   for (let line = 0; line < 4; line += 1) batch.add(boxShape(10.4, 0.025, 0.025), ['#3f88c5', '#e0a13a', '#4f8a5b', '#c06c84'][line]!, { y: 2.4, z: RACK.z - 0.12 + line * 0.08 }, 'satin', false)
-  batch.add(boxShape(0.5, 1.9, 1.3, 0.04), dark ? '#c9ccd2' : '#eef0f3', { x: ROOM_BOX.x0 + 0.3, y: 0.95, z: 0.4 }, 'satin')
-  for (let slat = 0; slat < 8; slat += 1) batch.add(boxShape(0.02, 0.025, 1.1), '#8a919c', { x: ROOM_BOX.x0 + 0.56, y: 1.2 + slat * 0.07, z: 0.4 }, 'metal', false)
+  const fine = shapeDetail() === 'high'
+  if (fine) {
+    fineCooler(batch, ROOM_BOX.x0 + 0.3, 0.4, dark)
+    for (let index = 0; index < SERVER_RACKS; index += 1) fineRack(batch, { x: rackX(index), z: RACK.z }, RACK, index === 0, options.accent)
+    // The tray's hangers from the ceiling, and a floor box of power at each end of the row.
+    for (const x of [-5, -2.5, 0, 2.5, 5]) for (const side of [-1, 1]) batch.add(cylinderShape(0.006, 0.006, 0.28, 6), c.metal, { x, y: 2.5, z: RACK.z + side * 0.18 }, 'metal', false)
+    for (const x of [rackX(0) - 0.72, rackX(SERVER_RACKS - 1) + 0.72]) {
+      batch.add(boxShape(0.36, 0.8, 0.4, 0.012), '#2a2d35', { x, y: 0.4, z: RACK.z - 0.2 }, 'satin')
+      batch.add(boxShape(0.2, 0.12, 0.004), '#16181d', { x, y: 0.62, z: RACK.z + 0.002 }, 'satin', false)
+    }
+  } else {
+    batch.add(boxShape(0.5, 1.9, 1.3, 0.04), dark ? '#c9ccd2' : '#eef0f3', { x: ROOM_BOX.x0 + 0.3, y: 0.95, z: 0.4 }, 'satin')
+    for (let slat = 0; slat < 8; slat += 1) batch.add(boxShape(0.02, 0.025, 1.1), '#8a919c', { x: ROOM_BOX.x0 + 0.56, y: 1.2 + slat * 0.07, z: 0.4 }, 'metal', false)
+  }
   // Racks: a cabinet with a door frame, a perforated front and a little screen on top.
-  for (let index = 0; index < SERVER_RACKS; index += 1) {
+  for (let index = 0; index < (fine ? 0 : SERVER_RACKS); index += 1) {
     const x = rackX(index)
     batch.add(boxShape(RACK.width, RACK.height, RACK.depth, 0.02), index === 0 ? '#2b3140' : '#23262e', { x, y: RACK.height / 2, z: RACK.z }, 'satin')
     batch.add(boxShape(RACK.width - 0.08, RACK.height - 0.12, 0.02), '#16181d', { x, y: RACK.height / 2, z: RACK.z + RACK.depth / 2 + 0.005 }, 'matte', false)

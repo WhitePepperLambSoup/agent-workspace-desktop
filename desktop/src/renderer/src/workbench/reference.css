@@ -833,6 +833,11 @@
 .session-row-dot[data-mode="task"] { background: var(--accent); }
 .session-row-dot[data-mode="coding"] { background: var(--success); }
 .session-row-dot[data-running="true"] { background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 26%, transparent); }
+/* A question waiting or a long silence; a turn that just failed. */
+.session-row-dot:is([data-attention="approval"], [data-attention="quiet"]) { background: var(--warning); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 30%, transparent); }
+.session-row-dot[data-attention="failed"] { background: var(--danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 26%, transparent); }
+.session-row small > span:is([data-attention="approval"], [data-attention="quiet"]) { color: var(--warning); }
+.session-row small > span[data-attention="failed"] { color: var(--danger); }
 .workbench[data-ui-version="reference"] .session-row small { display: flex; justify-content: space-between; padding-left: 14px; color: var(--text-muted); font-size: 11px; }
 .workbench[data-ui-version="reference"] .session-row.is-active :is(small, .session-row-title > svg) { color: inherit; opacity: .85; }
 .workbench[data-ui-version="reference"] .project-session-list .session-row small { display: none; }
@@ -1079,10 +1084,11 @@
 }
 .workbench[data-ui-version="reference"] .empty-session-suggestions button > svg:first-child { width: 26px; height: 26px; flex: 0 0 26px; color: var(--accent); }
 .workbench[data-ui-version="reference"] .empty-session-suggestions button > svg:last-child {
+  position: absolute;
+  top: 10px;
+  right: 10px;
   width: 14px;
   height: 14px;
-  flex: 0 0 auto;
-  margin-left: auto;
   color: var(--text-muted);
   opacity: 0;
   transition: opacity var(--motion) linear, transform var(--spring-bouncy-ms, var(--motion)) var(--spring-bouncy, linear);
@@ -1194,6 +1200,8 @@
 .timeline-notice > svg { margin-top: 2px; }
 .timeline-notice[data-kind="failed"] { color: var(--text); border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
 .timeline-notice[data-kind="failed"] > svg { color: var(--danger-text, var(--danger)); }
+.timeline-notice[data-kind="untrusted"] { color: var(--text); border-color: color-mix(in srgb, var(--warning, #e0a13a) 50%, transparent); }
+.timeline-notice[data-kind="untrusted"] > svg { color: var(--warning-text, var(--warning, #b97a12)); }
 .timeline-notice-body { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; overflow-wrap: anywhere; }
 .timeline-notice-body details { flex-basis: 100%; }
 .timeline-notice-body summary { width: max-content; color: var(--text-muted); cursor: pointer; }

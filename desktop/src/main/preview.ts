@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { createReadStream, realpathSync, statSync } from 'node:fs'
+import { createReadStream, readFileSync, realpathSync, statSync } from 'node:fs'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 
@@ -24,6 +24,81 @@ export const PREVIEW_HEADERS: Readonly<Record<string, string>> = {
   'referrer-policy': 'no-referrer',
   'x-content-type-options': 'nosniff',
   'cache-control': 'no-store',
+}
+
+/** Served to every page of the panel; a file of the folder under this name is not reachable. */
+export const PAGE_STORAGE_PATH = '/__aw-preview-storage.js'
+
+/**
+ * Generated pages often keep their state in localStorage or a cookie, which the sandbox's opaque origin
+ * rejects with a SecurityError, so a to-do page could not even add an item. A page gets storage in
+ * memory that lasts while it is open; nothing reaches the app.
+ */
+export const PAGE_STORAGE_SCRIPT = `(() => {
+  const storage = () => {
+    const items = new Map();
+    const api = {
+      get length() { return items.size; },
+      key(index) { const keys = Array.from(items.keys()); return index >= 0 && index < keys.length ? keys[index] : null; },
+      getItem(key) { key = String(key); return items.has(key) ? items.get(key) : null; },
+      setItem(key, value) { items.set(String(key), String(value)); },
+      removeItem(key) { items.delete(String(key)); },
+      clear() { items.clear(); }
+    };
+    return new Proxy(api, {
+      get(target, name, receiver) {
+        if (typeof name === 'symbol' || name in target) return Reflect.get(target, name, receiver);
+        return items.has(name) ? items.get(name) : undefined;
+      },
+      set(target, name, value) {
+        if (typeof name === 'symbol' || name in target) return false;
+        target.setItem(name, value);
+        return true;
+      },
+      deleteProperty(target, name) { if (typeof name !== 'symbol') target.removeItem(name); return true; },
+      has(target, name) { return name in target || items.has(String(name)); },
+      ownKeys() { return Array.from(items.keys()); },
+      getOwnPropertyDescriptor(target, name) {
+        return typeof name !== 'symbol' && items.has(name)
+          ? { value: items.get(name), writable: true, enumerable: true, configurable: true }
+          : undefined;
+      }
+    });
+  };
+  for (const name of ['localStorage', 'sessionStorage']) {
+    try { Object.defineProperty(window, name, { value: storage(), configurable: true }); } catch (e) {}
+  }
+  const cookies = new Map();
+  try {
+    Object.defineProperty(document, 'cookie', {
+      configurable: true,
+      get() { return Array.from(cookies, ([key, value]) => key + '=' + value).join('; '); },
+      set(text) {
+        const pair = String(text).split(';')[0];
+        const at = pair.indexOf('=');
+        if (at > 0) cookies.set(pair.slice(0, at).trim(), pair.slice(at + 1).trim());
+      }
+    });
+  } catch (e) {}
+})();`
+
+const PAGE_STORAGE_TAG = Buffer.from(`<script src="${PAGE_STORAGE_PATH}"></script>`, 'latin1')
+/** Larger pages are served as they are, so a huge file is not read into memory. */
+const MAX_PAGE_WITH_STORAGE = 64 * 1024 * 1024
+const UTF8_BOM = Buffer.from([0xef, 0xbb, 0xbf])
+
+/**
+ * The page with its storage script first: after any doctype, so it stays out of quirks mode, and as a
+ * short tag, so a <meta charset> keeps within the first bytes where a browser looks for it. A page in
+ * UTF-16 is left alone (a tag in Latin-1 would not be read).
+ */
+export function withPageStorage(page: Buffer): Buffer {
+  if (page.length >= 2 && ((page[0] === 0xff && page[1] === 0xfe) || (page[0] === 0xfe && page[1] === 0xff))) return page
+  const start = page.subarray(0, 3).equals(UTF8_BOM) ? 3 : 0
+  const head = page.subarray(start, start + 4096).toString('latin1')
+  const doctype = /^\s*(?:<!--[\s\S]*?-->\s*)*<!doctype[^>]*>/i.exec(head)
+  const at = start + (doctype ? doctype[0].length : 0)
+  return Buffer.concat([page.subarray(0, at), PAGE_STORAGE_TAG, page.subarray(at)])
 }
 
 /** A file of the folder for a request path of the preview scheme; null when outside it or missing. */
@@ -101,13 +176,24 @@ export class PreviewPanel {
       return new Response(null, { status: 400 })
     }
     if (!this.token || !this.root || url.host !== this.token) return new Response(null, { status: 404 })
+    if (url.pathname === PAGE_STORAGE_PATH) {
+      return new Response(PAGE_STORAGE_SCRIPT, { status: 200, headers: { ...PREVIEW_HEADERS, 'content-type': 'text/javascript; charset=utf-8' } })
+    }
     const path = resolvePreviewFile(this.root, url.pathname)
     if (!path) return new Response(null, { status: 404, headers: PREVIEW_HEADERS })
     const size = statSync(path).size
+    const contentType = previewContentType(path)
+    if (contentType.startsWith('text/html') && size <= MAX_PAGE_WITH_STORAGE) {
+      const page = withPageStorage(readFileSync(path))
+      return new Response(new Uint8Array(page), {
+        status: 200,
+        headers: { ...PREVIEW_HEADERS, 'content-type': contentType, 'content-length': String(page.length) },
+      })
+    }
     const body = Readable.toWeb(createReadStream(path)) as ReadableStream<Uint8Array>
     return new Response(body, {
       status: 200,
-      headers: { ...PREVIEW_HEADERS, 'content-type': previewContentType(path), 'content-length': String(size) },
+      headers: { ...PREVIEW_HEADERS, 'content-type': contentType, 'content-length': String(size) },
     })
   }
 

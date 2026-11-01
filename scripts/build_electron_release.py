@@ -149,7 +149,9 @@ def _assert_safe_bundle(bundle: Path) -> None:
     required = {
         "LICENSE",
         "THIRD_PARTY_NOTICES.md",
+        "resources/app-update.yml",
         "resources/app.asar",
+        "resources/icon.png",
         "resources/sidecar/agent-workspace-ui-gateway.exe",
         "resources/skills/official/skill-pack.json",
     }
@@ -409,6 +411,20 @@ def _write_manifest(bundle: Path, version: str, source_digest: str | None = None
         encoding="utf-8",
     )
     return destination
+
+
+def _write_update_config(bundle: Path) -> Path:
+    """What the updater reads before it downloads; unpacked builds come without it."""
+    package = json.loads((DESKTOP_ROOT / "package.json").read_text(encoding="utf-8"))
+    publish = package["build"]["publish"][0]
+    path = bundle / "resources" / "app-update.yml"
+    path.write_text(
+        f"provider: {publish['provider']}\n"
+        f"url: {publish['url']}\n"
+        f"updaterCacheDirName: {package['name']}-updater\n",
+        encoding="utf-8",
+    )
+    return path
 
 
 def _write_inventory(bundle: Path) -> Path:
@@ -680,6 +696,7 @@ def build_release(output_directory: Path, version: str | None = None) -> Path:
         raise RuntimeError(f"packaged sidecar runtime is missing: {bundled_runtime}")
     if _compute_sidecar_source_digest() != current_source_digest:
         raise RuntimeError("Python sources changed during Electron packaging")
+    _write_update_config(destination)
     _write_sbom(destination, version or _project_version())
     _write_manifest(destination, version or _project_version(), current_source_digest)
     _write_inventory(destination)

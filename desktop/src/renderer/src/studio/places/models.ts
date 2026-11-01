@@ -6,6 +6,9 @@ import type { KnowledgeSnapshot, KnowledgeState } from '../../knowledge/model'
 import type { ScheduleRunView, ScheduleView } from '../../schedules/model'
 import type { BackgroundJobSummary, WorkbenchState } from '../../state/workbench-types'
 import { toolCalls, turnRunning } from '../cast'
+import { QUIET_MS } from '../../notifications/attention'
+
+export { QUIET_MS }
 
 /**
  * What each place of the campus shows, from what the window knows: the knowledge base and the
@@ -14,8 +17,8 @@ import { toolCalls, turnRunning } from '../cast'
  * an empty knowledge base is an empty bookcase.
  */
 
-export type PlaceId = 'campus' | 'studio' | 'library' | 'site' | 'servers' | 'duty' | 'desk'
-export const PLACES: readonly Exclude<PlaceId, 'campus'>[] = ['studio', 'library', 'site', 'servers', 'duty', 'desk']
+export type PlaceId = 'campus' | 'studio' | 'library' | 'site' | 'servers' | 'duty' | 'desk' | 'control'
+export const PLACES: readonly Exclude<PlaceId, 'campus'>[] = ['studio', 'library', 'site', 'servers', 'duty', 'desk', 'control']
 
 type Tool = Record<string, JsonValue>
 
@@ -490,6 +493,159 @@ export function deskModel(status: Record<string, JsonValue> | null, state: Workb
     phones,
     outgoing: Object.values(state.phoneJobs ?? {}).filter((job) => !FINISHED_PHONE_JOBS.has(job.state)).length,
   }
+}
+
+// ---- control room ----------------------------------------------------------------------------
+
+/**
+ * A console's state, most urgent first: a question for the user, an error, a long silence while
+ * it should be working, at work, waiting its turn, just done or stopped.
+ */
+export type StationState = 'approval' | 'failed' | 'quiet' | 'working' | 'queued' | 'done' | 'stopped'
+
+export interface StationCost {
+  usd: number
+  /** Of which its sub-agents and experts. */
+  team: number
+  priced: boolean
+  estimated: boolean
+}
+
+export interface ControlStation {
+  sessionId: string
+  title: string | null
+  workspace: string | null
+  selected: boolean
+  state: StationState
+  /** How long nothing has come from it, while it works (ms). */
+  quietFor: number
+  queued: number
+  approvals: number
+  cost: StationCost | null
+}
+
+export interface ControlModel {
+  /** In a steady order: a conversation keeps its console while the room is open. */
+  stations: ControlStation[]
+  /** Conversations at work that have no console free. */
+  more: number
+  approvals: number
+  /** The jobs of the open folder running now, and those that failed among the latest. */
+  jobs: { running: number; failed: number }
+  /** Requests this computer sent to phones, still under way. */
+  phones: number
+  /** What the conversations shown cost together, once known. */
+  costUsd: number | null
+}
+
+export const CONTROL_STATIONS = 6
+/** A finished turn stays at its console this long. */
+export const ENDED_SHOWN_MS = 10 * 60_000
+const STATION_RANK: Record<StationState, number> = { approval: 0, failed: 1, quiet: 2, working: 3, queued: 4, done: 5, stopped: 6 }
+
+/** A conversation of the sidebar's lists: the sessions agent runs work in are not listed there. */
+function listed(state: WorkbenchState, sessionId: string): boolean {
+  return sessionId === text(state.selectedSession?.id)
+    || state.sessions.some((session) => session.id === sessionId)
+    || (state.workspaceDirectory?.groups ?? []).some((group) => group.sessions.some((session) => session.id === sessionId))
+}
+
+/**
+ * The conversations the room shows: at work, asking something, or just finished. `recent` says
+ * when the room last saw each one at work: a turn's end can be missed while the window resyncs.
+ */
+export function controlSessions(state: WorkbenchState, now: number, recent: ReadonlyMap<string, number> = new Map()): string[] {
+  const ids = new Set<string>()
+  for (const [sessionId, session] of Object.entries(state.runtime.activeSessions ?? {})) {
+    if ((session.activeTurn || session.turnRequested || (session.queuedTurnCount ?? 0) > 0) && listed(state, sessionId)) ids.add(sessionId)
+  }
+  const selected = text(state.selectedSession?.id)
+  if (selected && turnRunning(state, selected)) ids.add(selected)
+  for (const approval of Object.values(state.approvals)) {
+    const sessionId = text(approval.sessionId)
+    if (sessionId) ids.add(sessionId)
+  }
+  for (const run of Object.values(state.subagents ?? {})) {
+    if (!FINISHED_RUN.has(run.state)) ids.add(run.sessionId)
+  }
+  for (const [sessionId, seen] of Object.entries(state.sessionActivity ?? {})) {
+    if (seen.ended && now - seen.ended.at < ENDED_SHOWN_MS && listed(state, sessionId)) ids.add(sessionId)
+  }
+  for (const [sessionId, at] of recent) {
+    if (now - at < ENDED_SHOWN_MS && listed(state, sessionId)) ids.add(sessionId)
+  }
+  return [...ids]
+}
+
+/** Notes, for `controlSessions`, the conversations at work now; those long done are dropped. */
+export function noteAtWork(recent: Map<string, number>, stations: readonly ControlStation[], now: number): void {
+  for (const station of stations) {
+    if (station.state !== 'done' && station.state !== 'stopped') recent.set(station.sessionId, now)
+  }
+  for (const [sessionId, at] of recent) if (now - at >= ENDED_SHOWN_MS) recent.delete(sessionId)
+}
+
+const FINISHED_RUN = new Set(['succeeded', 'failed', 'cancelled'])
+
+/**
+ * The room's consoles in order: those seen while the room is open keep theirs; newcomers take
+ * the free ones. Past the room's size the ones at rest make way, then the oldest.
+ */
+export function stationOrder(previous: readonly string[], current: readonly string[], resting: (sessionId: string) => boolean): string[] {
+  const order = [...previous.filter((sessionId) => current.includes(sessionId)), ...current.filter((sessionId) => !previous.includes(sessionId))]
+  while (order.length > CONTROL_STATIONS) {
+    const index = order.findIndex(resting)
+    order.splice(index >= 0 ? index : 0, 1)
+  }
+  return order
+}
+
+export function controlModel(
+  state: WorkbenchState,
+  order: readonly string[],
+  costs: ReadonlyMap<string, StationCost>,
+  jobs: readonly BackgroundJobSummary[],
+  now: number,
+  info: (sessionId: string) => { title: string | null; workspace: string | null },
+): ControlModel {
+  const selected = text(state.selectedSession?.id) ?? null
+  const approvals = Object.values(state.approvals)
+  const stationFor = (sessionId: string): ControlStation => {
+    const runtime = state.runtime.activeSessions?.[sessionId]
+    const running = turnRunning(state, sessionId)
+    const asking = approvals.filter((item) => item.sessionId === sessionId).length
+    const runs = Object.values(state.subagents ?? {}).filter((item) => item.sessionId === sessionId)
+    const seen = state.sessionActivity?.[sessionId]
+    const quietFor = running && seen ? Math.max(0, now - seen.at) : 0
+    const queued = runtime?.queuedTurnCount ?? 0
+    const ended = !running ? seen?.ended : undefined
+    const stationState: StationState = asking > 0 ? 'approval'
+      : running && runs.some((item) => item.state === 'failed') ? 'failed'
+        : running && quietFor >= QUIET_MS ? 'quiet'
+          : running || runs.some((item) => !FINISHED_RUN.has(item.state)) ? 'working'
+            : queued > 0 ? 'queued'
+              : ended?.outcome === 'failed' ? 'failed'
+                : ended?.outcome === 'cancelled' ? 'stopped' : 'done'
+    return { sessionId, ...info(sessionId), selected: sessionId === selected, state: stationState, quietFor, queued, approvals: asking, cost: costs.get(sessionId) ?? null }
+  }
+  const stations = order.map(stationFor)
+  const all = controlSessions(state, now)
+  // Only priced models add up to a cost; a model without a price is not shown as free.
+  const shown = stations.filter((station) => station.cost?.priced)
+  const latest = jobs.slice(0, 20)
+  return {
+    stations,
+    more: Math.max(0, all.length - stations.length),
+    approvals: approvals.length,
+    jobs: { running: latest.filter((job) => RUNNING_JOB.test(job.state)).length, failed: latest.filter((job) => job.state === 'failed').length },
+    phones: Object.values(state.phoneJobs ?? {}).filter((job) => !FINISHED_PHONE_JOBS.has(job.state)).length,
+    costUsd: shown.length > 0 ? shown.reduce((total, station) => total + station.cost!.usd, 0) : null,
+  }
+}
+
+/** The stations from the most urgent down, for the list beside the room. */
+export function byUrgency(stations: readonly ControlStation[]): ControlStation[] {
+  return [...stations].sort((a, b) => STATION_RANK[a.state] - STATION_RANK[b.state] || b.quietFor - a.quietFor)
 }
 
 // ---- where the work is ---------------------------------------------------------------------

@@ -126,6 +126,13 @@ background runtime for that conversation, which stops once idle.
 - Optional `"from_agent": true` (not in the shared contract yet) marks the task as part of a task
   the phone's AI handed over (`ask_computer`); the window labels it so. The Android app does not
   send it today, so those tasks show as ordinary phone tasks.
+- Optional `"team"` (feature `expert_team`, not in the shared contract yet) runs the task with
+  this computer's expert team, as the window's team toggle does: `"auto"` lets the lead pick the
+  specialists from the library, or a list of 1 to 4 members `[{"id", "name", "brief"?}]`; optional
+  `"team_review": false` skips the review round. A value the library refuses is
+  `400 invalid_team`. Like a team turn from the window it is not queued: while the conversation
+  is busy the task is refused with `503 runtime_busy` and may be sent again. The window labels the
+  message `team`.
 - Task document: `{"task_id", "state", "session_id", "created_at", "updated_at", "autonomy",
   "model_location"}`, plus `error`, `result` (last answer, up to 64 KiB) and, while running,
   `activity`: the tool in use and its main argument (command, path, address, query), redacted and
@@ -222,7 +229,8 @@ each request's state above the composer and in the tool row.
 A user message a phone handed over carries `origin: {"device", "labels"}` in the live event and in
 history. Labels: `broad_autonomy` (the phone confirmed auto-approval), `private` (the phone
 confirmed sending private details), `subtask` (`from_agent`), `handoff` (a conversation continued
-from the phone). The window shows "From phone <name>" with the labels.
+from the phone), `team` (run with the expert team). The window shows "From phone <name>" with the
+labels.
 
 ## Activity
 

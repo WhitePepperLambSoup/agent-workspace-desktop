@@ -1,6 +1,6 @@
 {
   "name": "agent-workspace-desktop",
-  "version": "0.2.0-alpha.2",
+  "version": "1.0.0",
   "description": "Secure Electron shell for Agent Workspace",
   "main": "out/main/index.js",
   "scripts": {
@@ -34,6 +34,7 @@
       "packElevateHelper": false,
       "allowToChangeInstallationDirectory": true,
       "deleteAppDataOnUninstall": false,
+      "include": "resources/installer.nsh",
       "artifactName": "AgentWorkspace-Setup-${version}.${ext}"
     },
     "productName": "AgentWorkspace",
@@ -64,6 +65,10 @@
       {
         "from": "skills",
         "to": "skills"
+      },
+      {
+        "from": "resources/icon.png",
+        "to": "icon.png"
       }
     ],
     "extraFiles": [
@@ -93,6 +98,7 @@
     "electron-updater": "^6.8.9",
     "katex": "^0.18.11",
     "lucide-react": "^1.28.0",
+    "mermaid": "11.17.2",
     "pdfjs-dist": "6.4.299",
     "prosemirror-commands": "1.7.2",
     "prosemirror-dropcursor": "1.8.4",

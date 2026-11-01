@@ -2,7 +2,7 @@ import * as THREE from 'three'
 
 import type { ActorLook } from './cast'
 import type { Place, Point } from './layout'
-import { Batch, boxShape, coneShape, cylinderShape, sphereShape, torusShape, type Finishes } from './mesh-kit'
+import { Batch, boxShape, capsuleShape, coneShape, cylinderShape, latheShape, shapeDetail, sphereShape, torusShape, type Finishes } from './mesh-kit'
 
 /** What a person's body does where they are; walking is handled by the move itself. */
 export type Action = 'rest' | 'type' | 'read' | 'think' | 'write' | 'talk' | 'raise' | 'cheer' | 'slump' | 'sip' | 'operate'
@@ -66,76 +66,11 @@ export class Person {
     this.position = { ...start }
     this.phase = (id.length * 1.7) % (Math.PI * 2)
     this.blinkAt = 1 + Math.random() * 3
-    const shoe = '#2a2a2e'
-
-    // Legs: thigh and shin with the shoe, pivoting at the hip and the knee.
-    this.legs = [-0.085, 0.085].map((x) => {
-      const leg = this.limb(0.24, 0.2,
-        (batch) => batch.add(boxShape(0.13, 0.25, 0.13, 0.035), look.pants, { y: -0.12 }),
-        (batch) => {
-          batch.add(boxShape(0.12, 0.2, 0.12, 0.03), look.pants, { y: -0.1 })
-          batch.add(boxShape(0.135, 0.065, 0.21, 0.03), shoe, { y: -0.225, z: 0.035 })
-          batch.add(boxShape(0.13, 0.015, 0.2, 0.006), '#e8e4dc', { y: -0.255, z: 0.035 })
-        })
-      leg.upper.position.set(x, HIP, 0)
-      this.body.add(leg.upper)
-      return leg
-    }) as [Limb, Limb]
-
-    // Torso with a belt, the collar, and what they wear on it.
-    const torso = new Batch()
-    torso.add(boxShape(0.36, 0.42, 0.22, 0.06), look.shirt, { y: HIP + 0.21 })
-    torso.add(boxShape(0.37, 0.05, 0.23, 0.02), shade(look.pants, -0.08), { y: HIP + 0.02 })
-    torso.add(boxShape(0.05, 0.035, 0.01), '#c9a24a', { y: HIP + 0.02, z: 0.116 })
-    torso.add(boxShape(0.2, 0.05, 0.16, 0.02), shade(look.shirt, 0.08), { y: HIP + 0.41 })
-    torso.add(cylinderShape(0.055, 0.06, 0.06, 10), look.skin, { y: HIP + 0.45 })
-    if (look.accessory === 'tie') {
-      torso.add(boxShape(0.07, 0.04, 0.02), '#9e2b25', { y: HIP + 0.37, z: 0.115 })
-      torso.add(boxShape(0.06, 0.22, 0.02, 0.008), '#9e2b25', { y: HIP + 0.24, z: 0.115 })
-    } else if (look.accessory === 'scarf') {
-      torso.add(torusShape(0.15, 0.045, Math.PI * 2, 8, 16), '#e8c547', { y: HIP + 0.43, rx: Math.PI / 2 })
-      torso.add(boxShape(0.07, 0.16, 0.03, 0.012), '#e8c547', { y: HIP + 0.33, z: 0.12, x: 0.07 })
-    } else if (look.accessory === 'badge') {
-      torso.add(boxShape(0.08, 0.09, 0.02, 0.008), accent, { y: HIP + 0.32, z: 0.115, x: -0.09 })
-      torso.add(boxShape(0.05, 0.012, 0.022), '#ffffff', { y: HIP + 0.33, z: 0.116, x: -0.09 })
-    }
-    this.body.add(this.meshOf(torso))
-
-    // Arms: upper arm and forearm with a hand, pivoting at the shoulder and the elbow.
-    this.arms = [-0.235, 0.235].map((x) => {
-      const arm = this.limb(0.19, 0.16,
-        (batch) => batch.add(boxShape(0.1, 0.2, 0.1, 0.03), look.shirt, { y: -0.095 }),
-        (batch) => {
-          batch.add(boxShape(0.092, 0.16, 0.092, 0.028), look.shirt, { y: -0.08 })
-          batch.add(boxShape(0.096, 0.025, 0.096, 0.01), shade(look.shirt, -0.06), { y: -0.15 })
-          batch.add(boxShape(0.095, 0.09, 0.095, 0.035), look.skin, { y: -0.205 })
-        })
-      arm.end.position.y = -0.205
-      arm.upper.position.set(x, HIP + 0.38, 0)
-      this.body.add(arm.upper)
-      return arm
-    }) as [Limb, Limb]
-
-    // Head: a rounded block with ears, a nose, cheeks, hair and what they wear on it.
-    this.head.position.y = HIP + 0.42 + 0.2
-    const head = new Batch()
-    head.add(boxShape(0.38, 0.36, 0.36, 0.08), look.skin)
-    for (const side of [-1, 1]) head.add(boxShape(0.04, 0.08, 0.07, 0.02), look.skin, { x: side * 0.195, y: -0.01 })
-    head.add(boxShape(0.05, 0.05, 0.04, 0.018), shade(look.skin, -0.06), { y: -0.03, z: 0.18 })
-    head.add(boxShape(0.09, 0.022, 0.02, 0.008), '#a5574b', { y: -0.1, z: 0.175 })
-    for (const side of [-1, 1]) head.add(boxShape(0.055, 0.03, 0.01, 0.01), '#f08f8f', { x: side * 0.12, y: -0.06, z: 0.181 })
-    this.addHair(head, look)
-    this.addHeadwear(head, look)
-    this.head.add(this.meshOf(head))
-    // Eyes on their own, so they can blink.
-    const eyes = new Batch()
-    for (const side of [-1, 1]) {
-      eyes.add(boxShape(0.05, 0.07, 0.02, 0.012), '#1d1d22', { x: side * 0.08 })
-      eyes.add(boxShape(0.016, 0.018, 0.005), '#ffffff', { x: side * 0.08 + 0.01, y: 0.016, z: 0.011 })
-    }
-    this.eyes = this.meshOf(eyes, false)
-    this.eyes.position.set(0, 0.02, 0.18)
-    this.head.add(this.eyes)
+    // The high graphics setting's figure is modelled more finely on the same joints.
+    const built = shapeDetail() === 'high' ? this.buildFine(look, accent) : this.buildStandard(look, accent)
+    this.legs = built.legs
+    this.arms = built.arms
+    this.eyes = built.eyes
     this.body.add(this.head)
 
     // Props shown for some actions.
@@ -180,6 +115,216 @@ export class Person {
     this.root.position.set(start.x, 0, start.z)
     this.root.userData.personId = id
     this.root.traverse((object) => { object.userData.personId = id })
+  }
+
+  /** The standard figure: rounded blocks, like a toy office's. */
+  private buildStandard(look: ActorLook, accent: string): { legs: [Limb, Limb]; arms: [Limb, Limb]; eyes: THREE.Mesh } {
+    const shoe = '#2a2a2e'
+
+    // Legs: thigh and shin with the shoe, pivoting at the hip and the knee.
+    const legs = [-0.085, 0.085].map((x) => {
+      const leg = this.limb(0.24, 0.2,
+        (batch) => batch.add(boxShape(0.13, 0.25, 0.13, 0.035), look.pants, { y: -0.12 }),
+        (batch) => {
+          batch.add(boxShape(0.12, 0.2, 0.12, 0.03), look.pants, { y: -0.1 })
+          batch.add(boxShape(0.135, 0.065, 0.21, 0.03), shoe, { y: -0.225, z: 0.035 })
+          batch.add(boxShape(0.13, 0.015, 0.2, 0.006), '#e8e4dc', { y: -0.255, z: 0.035 })
+        })
+      leg.upper.position.set(x, HIP, 0)
+      this.body.add(leg.upper)
+      return leg
+    }) as [Limb, Limb]
+
+    // Torso with a belt, the collar, and what they wear on it.
+    const torso = new Batch()
+    torso.add(boxShape(0.36, 0.42, 0.22, 0.06), look.shirt, { y: HIP + 0.21 })
+    torso.add(boxShape(0.37, 0.05, 0.23, 0.02), shade(look.pants, -0.08), { y: HIP + 0.02 })
+    torso.add(boxShape(0.05, 0.035, 0.01), '#c9a24a', { y: HIP + 0.02, z: 0.116 })
+    torso.add(boxShape(0.2, 0.05, 0.16, 0.02), shade(look.shirt, 0.08), { y: HIP + 0.41 })
+    torso.add(cylinderShape(0.055, 0.06, 0.06, 10), look.skin, { y: HIP + 0.45 })
+    if (look.accessory === 'tie') {
+      torso.add(boxShape(0.07, 0.04, 0.02), '#9e2b25', { y: HIP + 0.37, z: 0.115 })
+      torso.add(boxShape(0.06, 0.22, 0.02, 0.008), '#9e2b25', { y: HIP + 0.24, z: 0.115 })
+    } else if (look.accessory === 'scarf') {
+      torso.add(torusShape(0.15, 0.045, Math.PI * 2, 8, 16), '#e8c547', { y: HIP + 0.43, rx: Math.PI / 2 })
+      torso.add(boxShape(0.07, 0.16, 0.03, 0.012), '#e8c547', { y: HIP + 0.33, z: 0.12, x: 0.07 })
+    } else if (look.accessory === 'badge') {
+      torso.add(boxShape(0.08, 0.09, 0.02, 0.008), accent, { y: HIP + 0.32, z: 0.115, x: -0.09 })
+      torso.add(boxShape(0.05, 0.012, 0.022), '#ffffff', { y: HIP + 0.33, z: 0.116, x: -0.09 })
+    }
+    this.body.add(this.meshOf(torso))
+
+    // Arms: upper arm and forearm with a hand, pivoting at the shoulder and the elbow.
+    const arms = [-0.235, 0.235].map((x) => {
+      const arm = this.limb(0.19, 0.16,
+        (batch) => batch.add(boxShape(0.1, 0.2, 0.1, 0.03), look.shirt, { y: -0.095 }),
+        (batch) => {
+          batch.add(boxShape(0.092, 0.16, 0.092, 0.028), look.shirt, { y: -0.08 })
+          batch.add(boxShape(0.096, 0.025, 0.096, 0.01), shade(look.shirt, -0.06), { y: -0.15 })
+          batch.add(boxShape(0.095, 0.09, 0.095, 0.035), look.skin, { y: -0.205 })
+        })
+      arm.end.position.y = -0.205
+      arm.upper.position.set(x, HIP + 0.38, 0)
+      this.body.add(arm.upper)
+      return arm
+    }) as [Limb, Limb]
+
+    // Head: a rounded block with ears, a nose, cheeks, hair and what they wear on it.
+    this.head.position.y = HIP + 0.42 + 0.2
+    const head = new Batch()
+    head.add(boxShape(0.38, 0.36, 0.36, 0.08), look.skin)
+    for (const side of [-1, 1]) head.add(boxShape(0.04, 0.08, 0.07, 0.02), look.skin, { x: side * 0.195, y: -0.01 })
+    head.add(boxShape(0.05, 0.05, 0.04, 0.018), shade(look.skin, -0.06), { y: -0.03, z: 0.18 })
+    head.add(boxShape(0.09, 0.022, 0.02, 0.008), '#a5574b', { y: -0.1, z: 0.175 })
+    for (const side of [-1, 1]) head.add(boxShape(0.055, 0.03, 0.01, 0.01), '#f08f8f', { x: side * 0.12, y: -0.06, z: 0.181 })
+    this.addHair(head, look)
+    this.addHeadwear(head, look)
+    this.head.add(this.meshOf(head))
+    // Eyes on their own, so they can blink.
+    const eyesBatch = new Batch()
+    for (const side of [-1, 1]) {
+      eyesBatch.add(boxShape(0.05, 0.07, 0.02, 0.012), '#1d1d22', { x: side * 0.08 })
+      eyesBatch.add(boxShape(0.016, 0.018, 0.005), '#ffffff', { x: side * 0.08 + 0.01, y: 0.016, z: 0.011 })
+    }
+    const eyes = this.meshOf(eyesBatch, false)
+    eyes.position.set(0, 0.02, 0.18)
+    this.head.add(eyes)
+    return { legs, arms, eyes }
+  }
+
+  /**
+   * The high graphics setting's figure, on the same joints as the standard one: rounded limbs
+   * with knees and cuffs, shoes with soles and toe caps, a shaped torso with a collar, buttons and
+   * a pocket, hands with thumbs, a soft head with brows, eyes with whites and a catch light, a
+   * nose, a smile, and hair modelled in volumes.
+   */
+  private buildFine(look: ActorLook, accent: string): { legs: [Limb, Limb]; arms: [Limb, Limb]; eyes: THREE.Mesh } {
+    const shoe = '#2a2a2e'
+    const sole = '#e8e4dc'
+    const legs = [-0.085, 0.085].map((x) => {
+      const leg = this.limb(0.24, 0.2,
+        (batch) => {
+          batch.add(capsuleShape(0.064, 0.16, 20), look.pants, { y: -0.115 })
+        },
+        (batch) => {
+          batch.add(capsuleShape(0.057, 0.12, 20), look.pants, { y: -0.08 })
+          batch.add(cylinderShape(0.061, 0.063, 0.03, 24), shade(look.pants, -0.07), { y: -0.16 })
+          batch.add(boxShape(0.112, 0.062, 0.2, 0.03), shoe, { y: -0.215, z: 0.035 })
+          batch.add(sphereShape(0.056, 20, 12), shoe, { y: -0.212, z: 0.11, sy: 0.55, sz: 0.8 })
+          batch.add(boxShape(0.118, 0.016, 0.215, 0.007), sole, { y: -0.247, z: 0.04 })
+          for (const lace of [0, 1]) batch.add(boxShape(0.05, 0.006, 0.008), '#d9d6cf', { y: -0.182, z: 0.05 + lace * 0.028 })
+        })
+      leg.upper.position.set(x, HIP, 0)
+      this.body.add(leg.upper)
+      return leg
+    }) as [Limb, Limb]
+
+    // The torso: the hips, a belt with its buckle, a chest that narrows to the waist, the
+    // shoulders, a collar with a placket and buttons, a pocket, the neck.
+    const torso = new Batch()
+    torso.add(boxShape(0.31, 0.13, 0.2, 0.06), look.pants, { y: HIP + 0.02 })
+    torso.add(boxShape(0.325, 0.04, 0.214, 0.02), shade(look.pants, -0.12), { y: HIP + 0.075 })
+    torso.add(boxShape(0.05, 0.034, 0.01, 0.004), '#c9a24a', { y: HIP + 0.075, z: 0.108 })
+    torso.add(latheShape('torso', [[0, 0], [0.15, 0], [0.158, 0.04], [0.165, 0.16], [0.182, 0.27], [0.19, 0.31], [0.175, 0.35], [0.1, 0.375], [0, 0.375]], 36), look.shirt, { y: HIP + 0.06, sz: 0.62 })
+    for (const side of [-1, 1]) torso.add(sphereShape(0.066, 20, 14), look.shirt, { x: side * 0.2, y: HIP + 0.37 })
+    torso.add(torusShape(0.06, 0.016, Math.PI * 2, 10, 28), shade(look.shirt, 0.06), { y: HIP + 0.43, rx: Math.PI / 2, sy: 0.85 })
+    for (const side of [-1, 1]) torso.add(boxShape(0.07, 0.05, 0.012, 0.005), shade(look.shirt, 0.08), { x: side * 0.04, y: HIP + 0.405, z: 0.088, rz: side * 0.55, rx: -0.3 })
+    torso.add(boxShape(0.03, 0.26, 0.006), shade(look.shirt, -0.04), { y: HIP + 0.24, z: 0.112 })
+    for (let button = 0; button < 3; button += 1) torso.add(sphereShape(0.008, 10, 8), shade(look.shirt, 0.18), { y: HIP + 0.32 - button * 0.075, z: 0.116, sz: 0.5 })
+    torso.add(boxShape(0.068, 0.07, 0.006, 0.003), shade(look.shirt, -0.06), { x: 0.085, y: HIP + 0.27, z: 0.11 })
+    torso.add(cylinderShape(0.048, 0.054, 0.08, 20), look.skin, { y: HIP + 0.45 })
+    if (look.accessory === 'tie') {
+      torso.add(boxShape(0.05, 0.036, 0.022, 0.01), '#9e2b25', { y: HIP + 0.39, z: 0.11 })
+      torso.add(boxShape(0.054, 0.2, 0.012, 0.006), '#9e2b25', { y: HIP + 0.27, z: 0.12 })
+      torso.add(boxShape(0.038, 0.038, 0.012, 0.004), '#9e2b25', { y: HIP + 0.17, z: 0.12, rz: Math.PI / 4 })
+      for (let stripe = 0; stripe < 4; stripe += 1) torso.add(boxShape(0.054, 0.008, 0.002), '#c9584f', { y: HIP + 0.33 - stripe * 0.04, z: 0.127, rz: 0.5 })
+    } else if (look.accessory === 'scarf') {
+      torso.add(torusShape(0.13, 0.042, Math.PI * 2, 12, 32), '#e8c547', { y: HIP + 0.43, rx: Math.PI / 2 })
+      torso.add(boxShape(0.07, 0.17, 0.028, 0.013), '#e8c547', { y: HIP + 0.33, z: 0.125, x: 0.07, rz: 0.08 })
+      for (let fringe = 0; fringe < 4; fringe += 1) torso.add(boxShape(0.008, 0.025, 0.008), '#d4b23c', { y: HIP + 0.235, z: 0.125, x: 0.05 + fringe * 0.014 })
+    } else if (look.accessory === 'badge') {
+      torso.add(torusShape(0.11, 0.004, Math.PI, 6, 24), accent, { y: HIP + 0.43, z: 0.02, rz: Math.PI, rx: 0.3 })
+      torso.add(boxShape(0.07, 0.09, 0.008, 0.006), '#f3efe7', { y: HIP + 0.3, z: 0.118, x: -0.085 })
+      torso.add(boxShape(0.07, 0.022, 0.009), accent, { y: HIP + 0.335, z: 0.119, x: -0.085 })
+    }
+    this.body.add(this.meshOf(torso))
+
+    const arms = [-0.235, 0.235].map((x, index) => {
+      const side = index === 0 ? -1 : 1
+      const arm = this.limb(0.19, 0.16,
+        (batch) => {
+          batch.add(capsuleShape(0.048, 0.13, 20), look.shirt, { y: -0.09 })
+        },
+        (batch) => {
+          batch.add(capsuleShape(0.043, 0.1, 20), look.shirt, { y: -0.065 })
+          batch.add(cylinderShape(0.047, 0.047, 0.026, 20), shade(look.shirt, -0.07), { y: -0.135 })
+          batch.add(boxShape(0.072, 0.078, 0.036, 0.018), look.skin, { y: -0.19 })
+          batch.add(capsuleShape(0.013, 0.03, 10), look.skin, { x: -side * 0.036, y: -0.18, z: 0.016, rz: side * 0.5 })
+        })
+      arm.end.position.y = -0.205
+      arm.upper.position.set(x, HIP + 0.38, 0)
+      this.body.add(arm.upper)
+      return arm
+    }) as [Limb, Limb]
+
+    // The head: soft and round, ears, a nose, brows, cheeks and a smile; hair and headwear.
+    this.head.position.y = HIP + 0.42 + 0.2
+    const head = new Batch()
+    head.add(boxShape(0.37, 0.36, 0.35, 0.13), look.skin)
+    for (const side of [-1, 1]) {
+      head.add(sphereShape(0.042, 16, 12), look.skin, { x: side * 0.184, y: -0.01, sx: 0.45, sz: 0.75 })
+      head.add(sphereShape(0.022, 12, 8), shade(look.skin, -0.08), { x: side * 0.196, y: -0.01, sx: 0.3, sz: 0.6 })
+      head.add(cylinderShape(0.03, 0.03, 0.004, 20), '#f2a7a0', { x: side * 0.112, y: -0.062, z: 0.16, rx: Math.PI / 2, ry: side * 0.45 })
+      head.add(boxShape(0.062, 0.013, 0.012, 0.006), shade(look.hair, -0.05), { x: side * 0.08, y: 0.085, z: 0.172, rz: -side * 0.12 })
+    }
+    head.add(sphereShape(0.026, 16, 12), shade(look.skin, -0.05), { y: -0.03, z: 0.174, sx: 0.95, sy: 0.85, sz: 0.8 })
+    head.add(torusShape(0.03, 0.0065, Math.PI, 8, 20), '#8e3b35', { y: -0.075, z: 0.171, rz: Math.PI })
+    this.addFineHair(head, look)
+    this.addHeadwear(head, look)
+    this.head.add(this.meshOf(head))
+    // Eyes on their own, so they can blink: whites, irises and a catch light.
+    const eyesBatch = new Batch()
+    for (const side of [-1, 1]) {
+      eyesBatch.add(sphereShape(0.034, 20, 14), '#fbfaf6', { x: side * 0.08, sy: 1.2, sz: 0.35 })
+      eyesBatch.add(sphereShape(0.024, 20, 14), '#2b2320', { x: side * 0.08, y: -0.004, z: 0.007, sy: 1.25, sz: 0.3 })
+      eyesBatch.add(sphereShape(0.008, 10, 8), '#ffffff', { x: side * 0.08 + 0.009, y: 0.012, z: 0.014, sz: 0.4 })
+    }
+    const eyes = this.meshOf(eyesBatch, false)
+    eyes.position.set(0, 0.02, 0.168)
+    this.head.add(eyes)
+    return { legs, arms, eyes }
+  }
+
+  /** Hair in volumes: a cap over the crown, the back, sideburns, and the style's own parts. */
+  private addFineHair(head: Batch, look: ActorLook): void {
+    const hair = look.hair
+    const strand = shade(hair, 0.015)
+    if (look.hairStyle === 'bald') {
+      for (const side of [-1, 1]) head.add(boxShape(0.03, 0.12, 0.24, 0.014), hair, { x: side * 0.185, y: 0.02, z: -0.04 })
+      return
+    }
+    head.add(sphereShape(0.205, 28, 18), hair, { y: 0.095, z: -0.012, sy: 0.64 })
+    head.add(boxShape(0.37, 0.24, 0.08, 0.04), hair, { y: 0.05, z: -0.145 })
+    for (const side of [-1, 1]) head.add(boxShape(0.026, 0.1, 0.06, 0.012), hair, { x: side * 0.186, y: 0.04, z: -0.025 })
+    // A few strands across the crown, so it does not read as a helmet.
+    for (const [x, z, ry] of [[-0.07, 0.05, 0.3], [0.02, 0.07, -0.1], [0.09, 0.02, -0.4]] as const) {
+      head.add(capsuleShape(0.014, 0.12, 8), strand, { x, y: 0.21, z, rx: Math.PI / 2, ry })
+    }
+    if (look.hairStyle === 'short') {
+      head.add(boxShape(0.3, 0.06, 0.07, 0.03), hair, { x: 0.02, y: 0.158, z: 0.14, rx: 0.4, rz: 0.12 })
+    } else if (look.hairStyle === 'long') {
+      head.add(boxShape(0.4, 0.42, 0.09, 0.045), hair, { y: -0.04, z: -0.17 })
+      for (const side of [-1, 1]) head.add(boxShape(0.05, 0.3, 0.13, 0.025), hair, { x: side * 0.19, y: -0.02, z: -0.04 })
+      head.add(boxShape(0.34, 0.07, 0.07, 0.035), hair, { y: 0.155, z: 0.145, rx: 0.3 })
+    } else if (look.hairStyle === 'bun') {
+      head.add(sphereShape(0.09, 20, 14), hair, { y: 0.26, z: -0.12 })
+      head.add(torusShape(0.06, 0.012, Math.PI * 2, 8, 24), shade(hair, 0.2), { y: 0.22, z: -0.1, rx: 1.2 })
+      head.add(boxShape(0.32, 0.05, 0.06, 0.025), hair, { y: 0.16, z: 0.145, rx: 0.35 })
+    } else if (look.hairStyle === 'spiky') {
+      for (const [x, z, tilt, lean] of [[-0.11, 0.06, -0.3, 0.2], [0.02, -0.06, 0, -0.2], [0.12, 0.08, 0.3, 0.2], [-0.02, 0.14, 0.15, 0.45], [0.08, -0.12, 0.2, -0.3], [-0.12, -0.08, -0.25, -0.2], [0.05, 0.1, 0.1, 0.3]] as const) {
+        head.add(coneShape(0.06, 0.15, 5), hair, { x, y: 0.27, z, rz: tilt, rx: lean })
+      }
+    }
   }
 
   /** One mesh of merged parts, drawn with the scene's matte finish. */

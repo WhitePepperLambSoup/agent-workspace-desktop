@@ -4,17 +4,18 @@ import { readFile } from 'node:fs/promises'
 import { release } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 
-import { BrowserWindow, Menu, Notification, WebContentsView, app, clipboard, crashReporter, dialog, globalShortcut, ipcMain, nativeImage, nativeTheme, protocol, screen, session, shell } from 'electron'
+import { BrowserWindow, Menu, Notification, Tray, WebContentsView, app, clipboard, crashReporter, dialog, globalShortcut, ipcMain, nativeImage, nativeTheme, powerSaveBlocker, protocol, screen, session, shell } from 'electron'
 
 import { z } from 'zod'
 
 import { nativeAppearanceRequestSchema } from '../shared/appearance'
-import { desktopNotificationSchema, updateFeedSchema, type AppInfo, type UpdateStatus } from '../shared/desktop'
+import { backgroundSettingsSchema, desktopNotificationSchema, mainStringsSchema, uiErrorReportSchema, updateFeedSchema, type AppInfo, type BackgroundSettings, type UpdateStatus } from '../shared/desktop'
 import { uiCommandSchema } from '../shared/api'
 import { ATTACHMENT_LIMITS, type AttachmentImportFile } from '../shared/attachments'
 import { validateAttachmentImports } from '../shared/attachment-validation'
 import { windowActionSchema } from '../shared/window'
 import { applyNativeAppearance } from './appearance'
+import { BackgroundController, fillIn, type AppActivity, type CloseChoice, type TrayLike } from './background'
 import {
   CONTENT_SECURITY_POLICY,
   installSessionSecurity,
@@ -34,7 +35,7 @@ import { RendererEventBuffer } from './renderer-event-buffer'
 import { installNativeWindowShape, supportsNativeWindowRounding } from './window-shape'
 import { createMainLogger } from './logger'
 import { sessionArchiveFileName } from './file-names'
-import { buildDiagnosticsReport, diagnosticsFileName, tailLines } from './diagnostics'
+import { buildDiagnosticsReport, diagnosticsFileName, redactSecrets, tailLines, UiErrorLog } from './diagnostics'
 import { resolveWorkspaceImage } from './workspace-image'
 import { RendererRecoveryPolicy } from './crash-recovery'
 import { MINIMUM_WINDOW_SIZE, readWindowState, restoreBounds, writeWindowState } from './window-state'
@@ -87,6 +88,7 @@ if (testUserData) {
   const resolvedTestUserData = resolve(testUserData)
   app.setPath('appData', join(resolvedTestUserData, 'app-data'))
   app.setPath('userData', resolvedTestUserData)
+  app.setPath('documents', join(resolvedTestUserData, 'documents'))
   if (process.env.AGENT_WORKSPACE_TEST_DISABLE_GPU === '1') {
     app.commandLine.appendSwitch('disable-gpu')
     app.disableHardwareAcceleration()
@@ -216,19 +218,116 @@ const quitCoordinator = new QuitCoordinator({
   getSidecar: () => sidecar,
   requestQuit: requestQuitAfterStorageFlush,
   reportError: (error) => logger.error('Sidecar shutdown failed', error),
+  decideClose: () => background.handleClose(),
   confirmQuit: () => {
     if (!unprotectedEditorDrafts || !mainWindow || mainWindow.isDestroyed()) return true
+    const strings = background.getStrings()
     return dialog.showMessageBoxSync(mainWindow, {
       type: 'warning',
-      title: 'Unsaved editor draft',
-      message: 'A workspace editor draft could not be backed up.',
-      detail: 'Save the file before closing, or close and discard the unprotected draft.',
-      buttons: ['Keep editing', 'Close anyway'],
+      title: strings.draftTitle,
+      message: strings.draftMessage,
+      detail: strings.draftDetail,
+      buttons: [strings.draftKeep, strings.draftClose],
       defaultId: 0,
       cancelId: 0,
       noLink: true,
     }) === 1
   },
+})
+
+// A login item starts the app with this; the window stays hidden until it is opened from the tray.
+const startedInBackground = process.argv.includes('--background')
+
+function showMainWindow(): void {
+  const window = mainWindow
+  if (!window || window.isDestroyed()) return
+  if (offscreenTestWindow) {
+    window.showInactive()
+    return
+  }
+  if (window.isMinimized()) window.restore()
+  window.show()
+  window.focus()
+}
+
+function createTray(actions: { show(): void; quit(): void }): TrayLike | null {
+  // Test instances run on the developer's own desktop and leave no icon there.
+  if (isIsolatedTestInstance) return null
+  const source = nativeImage.createFromPath(app.isPackaged ? join(process.resourcesPath, 'icon.png') : join(app.getAppPath(), 'resources', 'icon.png'))
+  const icon = nativeImage.createEmpty()
+  for (const [scaleFactor, size] of [[1, 16], [2, 32]] as const) {
+    icon.addRepresentation({ scaleFactor, width: size, height: size, buffer: source.resize({ width: size, height: size, quality: 'best' }).toPNG() })
+  }
+  const tray = new Tray(icon)
+  tray.on('click', actions.show)
+  return {
+    update: (tooltip, running, showLabel, quitLabel) => {
+      tray.setToolTip(tooltip)
+      tray.setContextMenu(Menu.buildFromTemplate([
+        ...(running ? [{ label: running, enabled: false }, { type: 'separator' as const }] : []),
+        { label: showLabel, click: actions.show },
+        { type: 'separator' as const },
+        { label: quitLabel, click: actions.quit },
+      ]))
+    },
+    notify: (title, content) => tray.displayBalloon({ title, content, iconType: 'info', noSound: true }),
+    destroy: () => tray.destroy(),
+  }
+}
+
+async function readAppActivity(): Promise<AppActivity> {
+  if (!sidecar) throw new Error('sidecar_unavailable')
+  const response = await sidecar.invoke({ type: 'app.activity', payload: {}, sessionId: null })
+  if (response.type !== 'app.activity.result') throw new Error('activity_unavailable')
+  const { runningTasks, schedules, phoneLink } = response.payload
+  return {
+    runningTasks: typeof runningTasks === 'number' ? runningTasks : 0,
+    schedules: typeof schedules === 'number' ? schedules : 0,
+    phoneLink: phoneLink === true,
+  }
+}
+
+async function askAboutClosing(activity: AppActivity, strings: ReturnType<BackgroundController['getStrings']>): Promise<{ choice: CloseChoice; remember: boolean }> {
+  if (isIsolatedTestInstance) {
+    const choice = process.env.AGENT_WORKSPACE_TEST_CLOSE_CHOICE
+    return { choice: choice === 'hide' || choice === 'stay' ? choice : 'quit', remember: false }
+  }
+  const window = mainWindow
+  if (!window || window.isDestroyed()) return { choice: 'quit', remember: false }
+  const { response, checkboxChecked } = await dialog.showMessageBox(window, {
+    type: 'question',
+    title: strings.appName,
+    message: activity.runningTasks > 0 ? fillIn(strings.closeRunningTitle, activity.runningTasks) : strings.closeServicesTitle,
+    detail: strings.closeBody,
+    buttons: [strings.closeBackground, strings.closeQuit, strings.closeCancel],
+    defaultId: 0,
+    cancelId: 2,
+    noLink: true,
+    checkboxLabel: strings.closeRemember,
+  })
+  return { choice: response === 0 ? 'hide' : response === 1 ? 'quit' : 'stay', remember: checkboxChecked }
+}
+
+function applyLoginItem(settings: BackgroundSettings): void {
+  // Only an installed copy has an address worth starting at login.
+  if (!app.isPackaged || isIsolatedTestInstance) return
+  app.setLoginItemSettings({ name: 'AgentWorkspace', openAtLogin: settings.openAtLogin, path: process.execPath, args: ['--background'] })
+}
+
+const background = new BackgroundController({
+  settingsPath: join(app.getPath('userData'), 'background.json'),
+  readActivity: readAppActivity,
+  ask: askAboutClosing,
+  createTray,
+  hideWindow: () => mainWindow?.hide(),
+  showWindow: showMainWindow,
+  quit: () => app.quit(),
+  applyLogin: applyLoginItem,
+  sleep: {
+    start: () => powerSaveBlocker.start('prevent-app-suspension'),
+    stop: (id) => powerSaveBlocker.stop(id),
+  },
+  log: (message, detail) => logger.warn(message, detail),
 })
 
 function trackWindowState(window: BrowserWindow): void {
@@ -257,12 +356,13 @@ function recoverRenderer(window: BrowserWindow, reason: string): void {
     return
   }
   if (reason === 'clean-exit' || reason === 'killed') return
+  const strings = background.getStrings()
   void dialog.showMessageBox(window, {
     type: 'error',
-    title: 'Agent Workspace',
-    message: 'The interface stopped responding repeatedly.',
-    detail: `Your conversations are saved. Restart the app; if this keeps happening, attach the log in ${logDirectory}.`,
-    buttons: ['Restart', 'Close'],
+    title: strings.appName,
+    message: strings.crashMessage,
+    detail: strings.crashDetail.replace('{folder}', logDirectory),
+    buttons: [strings.crashRestart, strings.crashClose],
     defaultId: 0,
     noLink: true,
   }).then(({ response }) => {
@@ -294,6 +394,7 @@ function createWindow(): BrowserWindow {
   const developmentIcon = join(app.getAppPath(), 'resources', 'icon.png')
   const window = new BrowserWindow({
     ...bounds,
+    ...(startedInBackground ? { show: false } : {}),
     ...(offscreenTestWindow
       ? {
           x: leftmost.bounds.x - bounds.width - 64,
@@ -369,8 +470,8 @@ function createWindow(): BrowserWindow {
       }
       place(window.getSize()[0]!, window.getSize()[1]!)
     }
-    window.showInactive()
-  } else if (savedState?.maximized) {
+    if (!startedInBackground) window.showInactive()
+  } else if (savedState?.maximized && !startedInBackground) {
     window.maximize()
   }
   trackWindowState(window)
@@ -381,6 +482,8 @@ function createWindow(): BrowserWindow {
   })
   window.webContents.on('destroyed', () => rendererEvents?.markUnavailable())
   window.on('close', (event) => quitCoordinator.onWindowClose(event))
+  // Windows is logging off or shutting down: nothing may hold the window open.
+  window.on('session-end', () => quitCoordinator.approveExit())
   void window.loadFile(join(__dirname, '../renderer/index.html'))
   return window
 }
@@ -649,11 +752,7 @@ function registerCapabilities(client: SidecarClient): void {
 function openQuickActions(capture: QuickCapture): void {
   const window = mainWindow
   if (!window || window.isDestroyed()) return
-  if (!offscreenTestWindow) {
-    if (window.isMinimized()) window.restore()
-    window.show()
-    window.focus()
-  }
+  showMainWindow()
   window.webContents.send('agent-workspace:quick-actions', capture)
 }
 
@@ -699,10 +798,46 @@ function registerDesktopCapabilities(): void {
     logDirectory,
   }))
   trustedHandle('agent-workspace:open-log-folder', async () => (await shell.openPath(logDirectory)).length === 0)
+  trustedHandle('agent-workspace:relaunch', () => {
+    // Under test the next launch is the test's own.
+    if (!isIsolatedTestInstance) app.relaunch()
+    quitCoordinator.approveExit()
+    app.quit()
+    return true
+  })
+  trustedHandle('agent-workspace:background-get', () => ({
+    settings: background.getSettings(),
+    canOpenAtLogin: app.isPackaged,
+  }))
+  trustedHandle('agent-workspace:background-set', (_event, input) => background.setSettings(backgroundSettingsSchema.parse(input)))
+  ipcMain.on('agent-workspace:main-strings', (event, input: unknown) => {
+    if (!isTrustedEvent(event)) return
+    const parsed = mainStringsSchema.safeParse(input)
+    if (parsed.success) background.setStrings(parsed.data)
+  })
+  trustedHandle('agent-workspace:default-workspace-folder', () => {
+    const folder = join(app.getPath('documents'), 'Agent Workspace')
+    try {
+      mkdirSync(folder, { recursive: true })
+      return folder
+    } catch (error) {
+      logger.warn('Default folder could not be made', error)
+      return null
+    }
+  })
+  const uiErrors = new UiErrorLog((report) => logger.error(`Interface error in ${report.where}`, redactSecrets(`${report.message}\n${report.stack}\n${report.componentStack}`)))
+  ipcMain.on('agent-workspace:ui-error', (event, input: unknown) => {
+    if (!isTrustedEvent(event)) return
+    const parsed = uiErrorReportSchema.safeParse(input)
+    if (parsed.success) uiErrors.record(parsed.data)
+  })
   trustedHandle('agent-workspace:update-status', () => updates.getStatus())
   trustedHandle('agent-workspace:update-feed', () => ({ url: updates.getFeed() }))
   trustedHandle('agent-workspace:update-set-feed', (_event, input) => updates.setFeed(updateFeedSchema.parse(input).url))
   trustedHandle('agent-workspace:update-check', () => updates.check())
+  trustedHandle('agent-workspace:update-auto-get', () => updates.getAutoCheck())
+  trustedHandle('agent-workspace:update-auto-set', (_event, enabled) => updates.setAutoCheck(enabled === true))
+  updates.startAutoChecks()
   trustedHandle('agent-workspace:update-download', () => updates.download())
   trustedHandle('agent-workspace:update-install', () => updates.install())
   trustedHandle('agent-workspace:export-diagnostics', async (_event, renderer) => {
@@ -818,9 +953,7 @@ function registerDesktopCapabilities(): void {
     const notification = new Notification({ title: parsed.data.title, body: parsed.data.body, silent: parsed.data.urgency !== 'attention' })
     notification.on('click', () => {
       if (!mainWindow || mainWindow.isDestroyed()) return
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      mainWindow.show()
-      mainWindow.focus()
+      showMainWindow()
       mainWindow.webContents.send('agent-workspace:notification-activated', { sessionId: parsed.data.sessionId })
     })
     notification.show()
@@ -879,20 +1012,20 @@ async function startApplication(): Promise<void> {
   mainWindow = createWindow()
   previewPanel = createPreviewPanel()
   mainWindow.on('closed', () => previewPanel?.close())
+  background.start(startedInBackground)
   try {
     await handshake
   } catch (error) {
     logger.error('Sidecar handshake failed', error)
   }
+  // Slow enough to cost nothing; the close button reads the state fresh anyway.
+  setInterval(() => void background.refresh(), 15_000).unref()
 }
 
 if (!hasSingleInstanceLock) {
   app.quit()
 } else {
-  app.on('second-instance', () => {
-    if (mainWindow?.isMinimized()) mainWindow.restore()
-    mainWindow?.focus()
-  })
+  app.on('second-instance', showMainWindow)
   app.whenReady().then(startApplication).catch((error: unknown) => {
     logger.error('Electron startup failed', error)
     app.quit()
@@ -902,4 +1035,7 @@ if (!hasSingleInstanceLock) {
 app.on('before-quit', (event) => quitCoordinator.onBeforeQuit(event))
 
 app.on('window-all-closed', () => app.quit())
-app.on('will-quit', () => quickActionsShortcut.clear())
+app.on('will-quit', () => {
+  quickActionsShortcut.clear()
+  background.dispose()
+})

@@ -402,10 +402,10 @@
 .provider-actions { grid-column: 1 / -1; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding-top: 2px; }
 .provider-actions button { min-height: 30px; padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; color: var(--text); background: var(--input); border: 1px solid var(--divider); border-radius: 5px; font-size: 10px; cursor: pointer; }
 .provider-actions button:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); }
-.provider-actions button:disabled { opacity: .52; cursor: not-allowed; }
+.provider-actions button:disabled { opacity: .66; cursor: not-allowed; }
 .provider-actions .provider-primary { color: var(--accent-contrast); background: var(--accent); border-color: var(--accent); }
 .provider-actions .provider-primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
-.provider-actions .provider-danger { color: var(--danger); }
+.provider-actions .provider-danger { color: var(--danger-text, var(--danger)); }
 .provider-actions .provider-new { margin-left: auto; }
 .provider-spinner { color: var(--accent); animation: provider-spin 900ms linear infinite; }
 .provider-status { margin: 9px 0 0; color: var(--text-muted); font-size: 10px; line-height: 1.45; overflow-wrap: anywhere; }

@@ -67,6 +67,12 @@
 .app-shell .timeline-row[data-arrived="true"] {
   animation: motion-rise-in var(--spring-bouncy-ms, 150ms) var(--spring-bouncy, linear) backwards;
 }
+/* A row the studio's replay pointed at, marked for a moment. */
+.app-shell .timeline-row[data-focused="true"] {
+  border-radius: 12px;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 70%, transparent);
+  transition: box-shadow var(--motion, 180ms) linear;
+}
 
 /* Buttons give under the pointer and spring back. */
 .app-shell :is(.send-button, .new-session-button, .project-empty-action, .sidebar-empty-action, .empty-session-suggestions button):not(:active) {

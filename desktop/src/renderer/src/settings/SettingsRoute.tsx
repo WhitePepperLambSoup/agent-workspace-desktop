@@ -1,3 +1,5 @@
+import { useRef } from 'react'
+
 import type { AppearanceState } from '../design/appearance'
 import type { WorkbenchBridgeClient } from '../bridge/client'
 import type { SettingsSectionContribution } from '../extensions/registry'
@@ -6,16 +8,20 @@ import type { WorkbenchState } from '../state/workbench-store'
 import { AboutSettings } from './AboutSettings'
 import { AppearanceSettings } from './AppearanceSettings'
 import { AutonomySettings } from './AutonomySettings'
+import { BackgroundSettings } from './BackgroundSettings'
+import { DataSettings } from './DataSettings'
 import { LanguageSettings } from './LanguageSettings'
 import { NotificationSettings } from './NotificationSettings'
 import { VoiceSettings } from './VoiceSettings'
 import { QuickActionSettings } from './QuickActionSettings'
 import { TeamSettings } from './TeamSettings'
+import { SubagentModelSettings } from './SubagentModelSettings'
 import { ShortcutSettings } from './ShortcutSettings'
 import { ProviderRuntimeSettings } from './ProviderRuntimeSettings'
 import { PromptOptimizationSettings } from './PromptOptimizationSettings'
 import { SystemDoctorSettings } from './SystemDoctorSettings'
 import { ScienceSettings } from './ScienceSettings'
+import { SettingsIndex } from './SettingsIndex'
 import { SkillSettings } from './SkillSettings'
 import { CodeSettings } from './CodeSettings'
 import { TaskLimitSettings } from './TaskLimitSettings'
@@ -23,6 +29,8 @@ import { UsageSettings } from './UsageSettings'
 import { DeviceLinkSettings } from './DeviceLinkSettings'
 import { InterfaceSettings } from './InterfaceSettings'
 import type { InterfaceMode } from '../workbench/interface-mode'
+
+import './setup-guide.css'
 
 type SettingsRegistry = { getSettingsSections(): SettingsSectionContribution[] }
 
@@ -41,6 +49,7 @@ interface SettingsRouteProps {
 
 function SettingsRouteView({ state, client, appearance, nativeStatus, onAppearanceChange, registry, layout, i18n, interfaceMode, onInterfaceModeChange }: SettingsRouteProps & { i18n: I18nValue }) {
   const { t } = i18n
+  const contentRef = useRef<HTMLDivElement>(null)
   const desktopHost = typeof window === 'undefined' ? undefined : window.agentWorkspace?.desktop
   const collectDiagnostics = async (): Promise<Record<string, unknown>> => {
     let doctor: unknown = null
@@ -78,25 +87,12 @@ function SettingsRouteView({ state, client, appearance, nativeStatus, onAppearan
         </div>
         <span className="route-context">{t('settings.context')}</span>
       </header>
-      <div className="settings-route-content">
+      <div className="settings-route-content" ref={contentRef}>
+        <SettingsIndex content={contentRef} i18n={i18n} />
+        <ProviderRuntimeSettings state={state} client={client} i18n={i18n} />
         <AutonomySettings state={state} client={client} i18n={i18n} />
         <LanguageSettings i18n={i18n} />
         {interfaceMode && onInterfaceModeChange ? <InterfaceSettings mode={interfaceMode} onChange={onInterfaceModeChange} i18n={i18n} /> : null}
-        <ProviderRuntimeSettings state={state} client={client} i18n={i18n} />
-      {typeof client?.getUsageBill === 'function' ? <UsageSettings client={client} i18n={i18n} /> : null}
-      {client ? <TaskLimitSettings client={client} i18n={i18n} /> : null}
-        <TeamSettings i18n={i18n} />
-      {typeof client?.listSkills === 'function' ? <SkillSettings client={client} i18n={i18n} /> : null}
-      {typeof client?.codeServers === 'function' ? <CodeSettings client={client} i18n={i18n} /> : null}
-      {typeof client?.scienceStatus === 'function' ? <ScienceSettings client={client} i18n={i18n} /> : null}
-      {client ? <DeviceLinkSettings client={client} i18n={i18n} /> : null}
-        <PromptOptimizationSettings state={state} client={client} i18n={i18n} />
-        <SystemDoctorSettings client={client} i18n={i18n} />
-        <NotificationSettings available={Boolean(desktopHost)} i18n={i18n} />
-        {client ? <VoiceSettings client={client} i18n={i18n} /> : null}
-        <QuickActionSettings i18n={i18n} />
-        <ShortcutSettings i18n={i18n} />
-        <AboutSettings host={desktopHost} i18n={i18n} collectDiagnostics={collectDiagnostics} />
         {appearance && onAppearanceChange ? (
           <AppearanceSettings
             appearance={appearance}
@@ -105,6 +101,23 @@ function SettingsRouteView({ state, client, appearance, nativeStatus, onAppearan
             i18n={i18n}
           />
         ) : null}
+        <NotificationSettings available={Boolean(desktopHost)} i18n={i18n} />
+        <BackgroundSettings host={desktopHost} i18n={i18n} />
+        {typeof client?.dataStatus === 'function' ? <DataSettings client={client} i18n={i18n} /> : null}
+      {typeof client?.getUsageBill === 'function' ? <UsageSettings client={client} i18n={i18n} /> : null}
+      {client ? <TaskLimitSettings client={client} i18n={i18n} /> : null}
+        <TeamSettings i18n={i18n} />
+      {typeof client?.subagentModel === 'function' ? <SubagentModelSettings client={client} i18n={i18n} /> : null}
+      {typeof client?.listSkills === 'function' ? <SkillSettings client={client} i18n={i18n} /> : null}
+      {typeof client?.codeServers === 'function' ? <CodeSettings client={client} i18n={i18n} /> : null}
+      {typeof client?.scienceStatus === 'function' ? <ScienceSettings client={client} i18n={i18n} /> : null}
+      {client ? <DeviceLinkSettings client={client} i18n={i18n} /> : null}
+        {client ? <VoiceSettings client={client} i18n={i18n} /> : null}
+        <QuickActionSettings i18n={i18n} />
+        <ShortcutSettings i18n={i18n} />
+        <PromptOptimizationSettings state={state} client={client} i18n={i18n} />
+        <SystemDoctorSettings client={client} i18n={i18n} />
+        <AboutSettings host={desktopHost} i18n={i18n} collectDiagnostics={collectDiagnostics} />
         {registry?.getSettingsSections().map((section) => {
           try {
             return <section key={section.id}>{section.render() as React.ReactNode}</section>

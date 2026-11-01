@@ -2,11 +2,13 @@ import { elementScroll, useVirtualizer } from '@tanstack/react-virtual'
 import { ArrowRight, Code2, FileText, FolderInput, Sparkles } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
+import { ErrorBoundary, RowCrash } from '../app/ErrorBoundary'
 import type { ContributionRegistry } from '../extensions/registry'
 import { isRenderableContribution } from '../extensions/registry'
 import type { NoticeActions } from './NoticeRow'
 import { TimelineRow, type MessageActions } from './TimelineRow'
 import type { NoticeEntry, TimelineEntry } from './types'
+import { TIMELINE_FOCUS_EVENT, takeTimelineFocus } from './focus-request'
 import { useOptionalI18n } from '../i18n/I18nProvider'
 import { parseUserAttachmentReferences } from './user-attachments'
 
@@ -161,13 +163,15 @@ function nodeAtBottom(node: HTMLElement): boolean {
 }
 
 function MeasuredTimelineRow({
-  entry, index, setSize, start, arrived, onResize, children,
+  entry, index, setSize, start, arrived, focused = false, onResize, children,
 }: {
   entry: TimelineEntry
   index: number
   setSize: number
   start: number
   arrived: boolean
+  /** Shown on request (the studio's replay pointed at it). */
+  focused?: boolean
   onResize: (index: number, height: number) => void
   children: ReactNode
 }) {
@@ -229,6 +233,7 @@ function MeasuredTimelineRow({
       aria-setsize={setSize}
       data-testid="timeline-row"
       data-arrived={arrived ? 'true' : undefined}
+      data-focused={focused ? 'true' : undefined}
       className={`timeline-row ${entry.type === 'message' ? `role-${entry.role}` : `row-${entry.type}`}`}
       style={{ transform: `translateY(${start}px)` }}
     >
@@ -300,6 +305,23 @@ export function ConversationTimeline({
   const resizeRow = useCallback((index: number, height: number) => {
     if (Number.isFinite(height) && height > 0) virtualizer.resizeItem(index, height)
   }, [virtualizer])
+  // A row asked for from elsewhere (the studio's replay): scrolled to and marked for a moment.
+  const [focused, setFocused] = useState<string | null>(null)
+  const [focusRequests, setFocusRequests] = useState(0)
+  useEffect(() => {
+    const onRequest = (): void => setFocusRequests((count) => count + 1)
+    window.addEventListener(TIMELINE_FOCUS_EVENT, onRequest)
+    return () => window.removeEventListener(TIMELINE_FOCUS_EVENT, onRequest)
+  }, [])
+  useEffect(() => {
+    const entryId = takeTimelineFocus((id) => entries.some((entry) => entry.id === id))
+    if (entryId === null) return undefined
+    followOutput.current = false
+    virtualizer.scrollToIndex(entries.findIndex((entry) => entry.id === entryId), { align: 'center' })
+    setFocused(entryId)
+    const timer = window.setTimeout(() => setFocused(null), 2_500)
+    return () => window.clearTimeout(timer)
+  }, [entries, focusRequests, virtualizer])
   const rows = virtualizer.getVirtualItems()
   const arrivals = useArrivals(entries, scopeKey)
   const visibleRows = rows.length > 0
@@ -526,9 +548,12 @@ export function ConversationTimeline({
                 setSize={entries.length}
                 start={row.start}
                 arrived={arrivals.has(entry.id)}
+                focused={focused === entry.id}
                 onResize={resizeRow}
               >
-                {content}
+                <ErrorBoundary where={`timeline:${entry.type}`} resetKey={entry} fallback={() => <RowCrash />}>
+                  {content}
+                </ErrorBoundary>
               </MeasuredTimelineRow>
             )
           })}

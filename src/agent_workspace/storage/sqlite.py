@@ -46,6 +46,7 @@ from agent_workspace.storage.checkpoint_crypto import (
     protect_checkpoint_preimage,
     unprotect_checkpoint_preimage,
 )
+from agent_workspace.storage.slow_work import watch_connection
 
 _BUSY_TIMEOUT_MS = 5_000
 
@@ -1182,6 +1183,7 @@ class SQLiteEventStore:
                 timeout=_BUSY_TIMEOUT_MS / 1_000,
                 uri=True,
             )
+            watch_connection(connection)
             quick_check = connection.execute("PRAGMA quick_check").fetchall()
             if [row[0] for row in quick_check] != ["ok"]:
                 raise RuntimeError("Database quick_check failed before migration")

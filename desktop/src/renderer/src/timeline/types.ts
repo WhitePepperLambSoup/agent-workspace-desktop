@@ -28,13 +28,14 @@ export type DiffEntry = {
   source: string
 }
 
-/** Why a turn stopped, or where a forked conversation came from. */
+/** Why a turn stopped, where a forked conversation came from, or outside content that talked to the agent. */
 export type NoticeEntry = {
   id: string
   type: 'notice'
-  kind: 'failed' | 'forked'
+  kind: 'failed' | 'forked' | 'untrusted'
   errorType?: string
   message?: string
+  tool?: string
   sourceSessionId?: string
   sourceModel?: string
   compareModel?: string
@@ -72,6 +73,8 @@ export interface ApprovalItem {
   title: string
   detail: string
   supportsSessionScope: boolean
+  // The model service a request would go to, when that is what is being asked.
+  endpoint?: string
   // The sub-agent asking, when the request comes from one this conversation started.
   subagent?: string
   // Every change of a file batch (organize_files), listed before it is approved.

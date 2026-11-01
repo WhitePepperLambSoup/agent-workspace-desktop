@@ -12,7 +12,11 @@ export const COLOR_MODES = ['dark', 'light', 'system'] as const
 
 export const BACKDROPS = ['studio', 'field'] as const
 
+/** The 3D studio's graphics: standard for every computer, high for a strong graphics card. */
+export const GRAPHICS_QUALITIES = ['standard', 'high'] as const
+
 export type AppearancePalette = (typeof APPEARANCE_PALETTES)[number]
+export type GraphicsQuality = (typeof GRAPHICS_QUALITIES)[number]
 /** What liquid glass shows behind the panes: the conversation's studio, or the drifting colour field. */
 export type Backdrop = (typeof BACKDROPS)[number]
 export type ColorMode = (typeof COLOR_MODES)[number]
@@ -29,6 +33,8 @@ export interface AppearanceState {
   refraction?: boolean
   /** Absent means the studio. */
   backdrop?: Backdrop
+  /** Absent means standard; high is only ever the user's own choice. */
+  graphics?: GraphicsQuality
 }
 
 export interface ResolvedAppearance extends AppearanceState {

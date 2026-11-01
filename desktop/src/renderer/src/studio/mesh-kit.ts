@@ -13,15 +13,20 @@ export type Finish = 'matte' | 'satin' | 'metal' | 'glass' | 'glow'
 
 export type Finishes = Record<Finish, THREE.Material>
 
-/** One set of materials per scene, shared by every room and person in it. */
-export function createFinishes(): Finishes {
+/**
+ * One set of materials per scene, shared by every room and person in it. `glowGain` brightens
+ * what is lit from within, for the high graphics setting's glow (graphics.ts).
+ */
+export function createFinishes(glowGain = 1): Finishes {
+  const glow = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false })
+  glow.color.setScalar(glowGain)
   return {
     matte: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.84, metalness: 0 }),
     satin: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.05 }),
     metal: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.38, metalness: 0.55 }),
     glass: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.08, metalness: 0.1, transparent: true, opacity: 0.55, depthWrite: false }),
     // Lit from within: screens off, indicator lights, the night sky.
-    glow: new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }),
+    glow,
   }
 }
 
@@ -29,43 +34,83 @@ export function disposeFinishes(finishes: Finishes): void {
   for (const material of Object.values(finishes)) material.dispose()
 }
 
+/**
+ * How finely shapes are made. 'high' (the high graphics setting, for a strong graphics card)
+ * rounds smaller edges, in more steps, and makes round things smoother; a scene sets it before it
+ * builds. Shapes of each detail are kept apart.
+ */
+export type ShapeDetail = 'standard' | 'high'
+let detail: ShapeDetail = 'standard'
+
+export function setShapeDetail(next: ShapeDetail): void {
+  detail = next
+}
+
+export function shapeDetail(): ShapeDetail {
+  return detail
+}
+
 const cache = new Map<string, THREE.BufferGeometry>()
 
 function cached(key: string, make: () => THREE.BufferGeometry): THREE.BufferGeometry {
-  let geometry = cache.get(key)
+  const keyed = detail === 'high' ? `${key}:high` : key
+  let geometry = cache.get(keyed)
   if (!geometry) {
     geometry = make()
-    cache.set(key, geometry)
+    cache.set(keyed, geometry)
   }
   return geometry
 }
 
 /** Below this a rounded edge cannot be seen at the studio's scale, and costs 9 times the triangles. */
 const VISIBLE_ROUNDING = 0.02
+/** In high detail: rounding down to small parts' edges, and the steps a bevel is made in. */
+const HIGH_ROUNDING = 0.006
+const highBevelSteps = (radius: number): number => (radius >= 0.03 ? 3 : 2)
+/** Round shapes in high detail: twice the segments, up to a limit. */
+const finer = (segments: number, most = 64): number => (detail === 'high' ? Math.min(most, segments * 2) : segments)
 
 /**
  * A box, its edges bevelled by `radius` where that shows (one segment: a soft edge at a ninth of
- * a fully rounded box's triangles). Shapes are made once and reused.
+ * a fully rounded box's triangles; in high detail a rounded edge in a few steps). Shapes are made
+ * once and reused.
  */
 export function boxShape(width: number, height: number, depth: number, radius = 0): THREE.BufferGeometry {
   const r = Math.min(radius, width / 2, height / 2, depth / 2)
-  return cached(`box:${width}:${height}:${depth}:${r}`, () => (r >= VISIBLE_ROUNDING ? new RoundedBoxGeometry(width, height, depth, 1, r) : new THREE.BoxGeometry(width, height, depth)))
+  return cached(`box:${width}:${height}:${depth}:${r}`, () => {
+    if (detail === 'high') return r >= HIGH_ROUNDING ? new RoundedBoxGeometry(width, height, depth, highBevelSteps(r), r) : new THREE.BoxGeometry(width, height, depth)
+    return r >= VISIBLE_ROUNDING ? new RoundedBoxGeometry(width, height, depth, 1, r) : new THREE.BoxGeometry(width, height, depth)
+  })
 }
 
 export function cylinderShape(top: number, bottom: number, height: number, segments = 16): THREE.BufferGeometry {
-  return cached(`cyl:${top}:${bottom}:${height}:${segments}`, () => new THREE.CylinderGeometry(top, bottom, height, segments))
+  return cached(`cyl:${top}:${bottom}:${height}:${segments}`, () => new THREE.CylinderGeometry(top, bottom, height, finer(segments)))
 }
 
 export function sphereShape(radius: number, width = 12, height = 8): THREE.BufferGeometry {
-  return cached(`sph:${radius}:${width}:${height}`, () => new THREE.SphereGeometry(radius, width, height))
+  return cached(`sph:${radius}:${width}:${height}`, () => new THREE.SphereGeometry(radius, finer(width), finer(height, 32)))
 }
 
+/** A cone; few-sided ones (spiky hair) keep their facets in every detail. */
 export function coneShape(radius: number, height: number, segments = 8): THREE.BufferGeometry {
-  return cached(`cone:${radius}:${height}:${segments}`, () => new THREE.ConeGeometry(radius, height, segments))
+  return cached(`cone:${radius}:${height}:${segments}`, () => new THREE.ConeGeometry(radius, height, segments >= 8 ? finer(segments) : segments))
 }
 
 export function torusShape(radius: number, tube: number, arc = Math.PI * 2, radial = 8, tubular = 24): THREE.BufferGeometry {
-  return cached(`torus:${radius}:${tube}:${arc}:${radial}:${tubular}`, () => new THREE.TorusGeometry(radius, tube, radial, tubular, arc))
+  return cached(`torus:${radius}:${tube}:${arc}:${radial}:${tubular}`, () => new THREE.TorusGeometry(radius, tube, finer(radial, 24), finer(tubular), arc))
+}
+
+/** A pill: a cylinder of `length` between two half-spheres, along y. */
+export function capsuleShape(radius: number, length: number, radial = 16): THREE.BufferGeometry {
+  return cached(`capsule:${radius}:${length}:${radial}`, () => new THREE.CapsuleGeometry(radius, length, 6, radial))
+}
+
+/**
+ * A shape turned about the y axis from a profile of [radius, height] points, bottom to top: pots,
+ * lamp shades, vases. `key` names the profile for the cache.
+ */
+export function latheShape(key: string, profile: ReadonlyArray<readonly [number, number]>, segments = 32): THREE.BufferGeometry {
+  return cached(`lathe:${key}:${segments}`, () => new THREE.LatheGeometry(profile.map(([radius, height]) => new THREE.Vector2(radius, height)), segments))
 }
 
 export function dodecaShape(radius: number): THREE.BufferGeometry {
@@ -115,6 +160,8 @@ function placed(shape: THREE.BufferGeometry, at: Placement, color: string): THRE
 /** Parts gathered for merging: by finish, and whether they cast shadows. */
 export class Batch {
   private readonly groups = new Map<string, THREE.BufferGeometry[]>()
+  /** Where the parts being added go, for a piece built in its own frame (see `within`). */
+  private frame: THREE.Matrix4 | null = null
 
   add(shape: THREE.BufferGeometry, color: string, at: Placement = {}, finish: Finish = 'matte', shadow = true): void {
     const key = `${finish}|${shadow ? 1 : 0}`
@@ -123,7 +170,25 @@ export class Batch {
       list = []
       this.groups.set(key, list)
     }
-    list.push(placed(shape, at, color))
+    const part = placed(shape, at, color)
+    if (this.frame) part.applyMatrix4(this.frame)
+    list.push(part)
+  }
+
+  /** Builds a piece in its own frame (its origin and facing), then sets it where `at` says. */
+  within(at: Placement, build: () => void): void {
+    const outer = this.frame
+    const local = new THREE.Matrix4().compose(
+      new THREE.Vector3(at.x ?? 0, at.y ?? 0, at.z ?? 0),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(at.rx ?? 0, at.ry ?? 0, at.rz ?? 0)),
+      new THREE.Vector3(at.sx ?? 1, at.sy ?? 1, at.sz ?? 1),
+    )
+    this.frame = outer ? outer.clone().multiply(local) : local
+    try {
+      build()
+    } finally {
+      this.frame = outer
+    }
   }
 
   /** One geometry per finish and shadow flag; the parts' own buffers are freed. */

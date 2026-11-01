@@ -1,5 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 
+import type { UiErrorReport } from '../shared/desktop'
+
 const SECRET_PATTERNS: readonly RegExp[] = [
   /\b(sk|pk|rk)-[A-Za-z0-9_-]{16,}/g,
   /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi,
@@ -43,6 +45,37 @@ export function buildDiagnosticsReport(input: {
     section('Workbench', renderer.length > 512_000 ? `${renderer.slice(0, 512_000)}\n[truncated]` : renderer),
     section(`main.log (last ${input.logLines.length + input.previousLogLines.length} lines)`, log),
   ].join('\n'))
+}
+
+/**
+ * Passes on the interface's errors, without a failure that repeats every frame filling the log:
+ * at most `limit` a minute, and one report once of each.
+ */
+export class UiErrorLog {
+  private readonly seen = new Set<string>()
+  private windowStart = 0
+  private count = 0
+
+  constructor(
+    private readonly write: (report: UiErrorReport) => void,
+    private readonly limit = 20,
+    private readonly now: () => number = Date.now,
+  ) {}
+
+  record(report: UiErrorReport): boolean {
+    const current = this.now()
+    if (current - this.windowStart >= 60_000) {
+      this.windowStart = current
+      this.count = 0
+      this.seen.clear()
+    }
+    const key = `${report.where}\n${report.message}`
+    if (this.count >= this.limit || this.seen.has(key)) return false
+    this.seen.add(key)
+    this.count += 1
+    this.write(report)
+    return true
+  }
 }
 
 export function diagnosticsFileName(now: Date): string {

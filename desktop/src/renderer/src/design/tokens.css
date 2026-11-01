@@ -20,7 +20,7 @@
 
 [data-color-mode="dark"] {
   /* Danger as small text needs more contrast than danger as a fill. */
-  --danger-text: #ff9eaa;
+  --danger-text: #ffb4be;
 }
 
 [data-color-mode="light"] {

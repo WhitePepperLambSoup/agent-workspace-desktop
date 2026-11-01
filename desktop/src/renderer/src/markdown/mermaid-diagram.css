@@ -1,0 +1,53 @@
+.mermaid-diagram {
+  margin: 8px 0;
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  overflow-x: auto;
+  border-radius: 10px;
+  background: var(--surface-fill);
+  box-shadow: inset 0 0 0 1px var(--pane-divider);
+}
+
+.mermaid-diagram img {
+  max-width: 100%;
+  height: auto;
+}
+
+.mermaid-diagram figcaption {
+  justify-self: start;
+}
+
+.mermaid-diagram figcaption button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.mermaid-diagram :is(pre, .shiki-fragment) {
+  width: 100%;
+  margin: 0;
+  justify-self: stretch;
+}
+
+.mermaid-diagram-wait {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.mermaid-diagram-note {
+  margin: 0;
+  justify-self: start;
+  color: var(--text-muted);
+  font-size: 12px;
+}

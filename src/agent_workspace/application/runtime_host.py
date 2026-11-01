@@ -19,8 +19,9 @@ from agent_workspace.application.runtime import (
     ApplicationRuntime,
     build_runtime_async,
 )
+from agent_workspace.application.tool_guards import GuardedToolHooks
 from agent_workspace.config import ProviderConfig, is_loopback_endpoint
-from agent_workspace.core.budgets import TaskLimits
+from agent_workspace.core.budgets import LONG_TURN_LIMITS, TaskLimits
 from agent_workspace.core.events import Event
 from agent_workspace.core.models import (
     ApprovalScope,
@@ -60,6 +61,7 @@ _MAX_DISPLAY_DELTA_BYTES = 64 * 1024
 _MUST_DELIVER_DISPLAY_EVENTS = frozenset(
     {
         "approval.requested",
+        "content.untrusted",
         "runtime.failed",
         "runtime.stopped",
         "tool.cancelled",
@@ -87,6 +89,7 @@ def _loopback_endpoint(base_url: str) -> bool:
 
 # What a plan-first turn may use: tools that only read, and the to-do list for the plan.
 _PLAN_EFFECTS = frozenset({"", "none", "read", "read_state", "session_state"})
+_PLAN_LOOKUP_TOOLS = frozenset({"web_search", "web_fetch"})
 _PLAN_FIRST = (
     "Plan first: for this request, look into it with the tools you have (they only read) and "
     "reply with a short numbered plan: what you will change, in which files, and how you will "
@@ -102,6 +105,9 @@ def _tool_allowed(name: str, allowed: frozenset[str]) -> bool:
 
 
 def _reads_only(spec: ToolSpec) -> bool:
+    # Reading the web is looking too, though its effect is "network" (each fetch still asks).
+    if spec.name in _PLAN_LOOKUP_TOOLS:
+        return True
     effect = spec.side_effect.strip().lower().replace("-", "_")
     return effect.rsplit(":", maxsplit=1)[-1].removeprefix("filesystem_") in _PLAN_EFFECTS
 
@@ -215,6 +221,8 @@ class RuntimeSettings:
     writer_lock_group: ProcessWriteLockGroup | None = None
     # Starts sub-agents for the delegate_tasks tool; None leaves the tool out.
     subagents: SubagentLauncher | None = None
+    # Model services the user chose: requests go to them without asking, unless sensitive.
+    egress_trusted: Callable[[str], bool] | None = None
     # Sends requests to paired phones for the phone_task tool; None leaves the tool out.
     phone_jobs: PhoneJobLauncher | None = None
     # More tools for the runtime (the desktop's use_skill), and a section added to the system
@@ -229,6 +237,11 @@ class RuntimeSettings:
     # What runs around tool calls in the open folder (the desktop's project rules), made for it
     # at start; None runs tools as they are.
     tool_hooks: Callable[[Path], ToolHooks] | None = None
+    # A file written broken is reported to the model; outside content that talks to the agent makes
+    # the rest of the turn ask at every step (tool_guards.py).
+    tool_guards: bool = False
+    # A turn may run for hours (core/budgets.py); its cost limit stays.
+    long_turns: bool = False
 
 
 @dataclass(slots=True)
@@ -328,8 +341,15 @@ class RuntimeHost(threading.Thread):
                 extra_tools = (*extra_tools, *folder_tools(self.settings.workspace))
             if extra_tools:
                 build_options["extra_tools"] = extra_tools
-            if self.settings.tool_hooks is not None:
-                build_options["tool_hooks"] = self.settings.tool_hooks(self.settings.workspace)
+            hooks = (
+                self.settings.tool_hooks(self.settings.workspace)
+                if self.settings.tool_hooks is not None
+                else None
+            )
+            if self.settings.tool_guards:
+                hooks = GuardedToolHooks(hooks, self._outside_content_found)
+            if hooks is not None:
+                build_options["tool_hooks"] = hooks
             self._runtime = loop.run_until_complete(
                 build_runtime_async(
                     self.settings.workspace,
@@ -581,6 +601,26 @@ class RuntimeHost(threading.Thread):
         if loop is None or loop.is_closed() or self._closing:
             return None
         return asyncio.run_coroutine_threadsafe(self._resolve_approval(request_id, scope), loop)
+
+    def _workspace_policy(self) -> WorkspacePolicy | None:
+        service = getattr(self._runtime, "service", None)
+        policy = getattr(getattr(service, "runner", None), "_policy", None)
+        return policy if isinstance(policy, WorkspacePolicy) else None
+
+    def _outside_content_found(self, session_id: str, tool: str, found: dict[str, Any]) -> None:
+        self.distrust_here(session_id)
+        self._emit("content.untrusted", {"tool": tool, "sample": found["sample"]})
+
+    def distrust_here(self, session_id: str) -> None:
+        policy = self._workspace_policy()
+        if policy is not None:
+            policy.distrust_session(session_id)
+
+    def request_distrust(self, session_id: str) -> None:
+        """Outside content reached this conversation through one of its experts."""
+        loop = self._loop
+        if loop is not None and not loop.is_closed() and not self._closing:
+            loop.call_soon_threadsafe(self.distrust_here, session_id)
 
     def request_shutdown(self, *, create_backup: bool = False) -> Future[None] | None:
         self._create_backup_on_shutdown = create_backup
@@ -857,6 +897,10 @@ class RuntimeHost(threading.Thread):
         self._turn_failure_forwarded = False
         task: asyncio.Task[RunResult] | None = None
         watch: TurnObserver | None = None
+        policy = self._workspace_policy()
+        if policy is not None and self._session is not None:
+            # A new request from the user: distrust lasted for the turn that read the content.
+            policy.trust_session_again(self._session.id)
         try:
             if self._session is None:
                 self._session = runtime.service.create_session(
@@ -876,10 +920,11 @@ class RuntimeHost(threading.Thread):
                 )
             turn_model = model or self.settings.provider.model
             options: dict[str, Any] = {}
-            if limits is not None:
-                options["budget"] = limits.apply(
-                    runtime.service.default_budget(turn_model, reasoning_effort)
-                )
+            if limits is not None or self.settings.long_turns:
+                budget = runtime.service.default_budget(turn_model, reasoning_effort)
+                if self.settings.long_turns:
+                    budget = replace(budget, **LONG_TURN_LIMITS)  # type: ignore[arg-type]
+                options["budget"] = limits.apply(budget) if limits is not None else budget
             # Providers that bill a cached prompt prefix cheaply get requests that only grow
             # at the end, and compaction that moves in rare large steps.
             if prefix_cache_endpoint(self.settings.provider.base_url, turn_model):
@@ -1012,14 +1057,16 @@ class RuntimeHost(threading.Thread):
         request_id = str(uuid4())
         future: asyncio.Future[ApprovalResult] = asyncio.get_running_loop().create_future()
         self._approvals[request_id] = future
-        supports_session_scope = (
-            tool.name not in _ONCE_ONLY_APPROVAL_TOOLS
-            and WorkspacePolicy._effect_kind(tool.side_effect) not in _ONCE_ONLY_EFFECTS
-        )
-        self._approval_session_scopes[request_id] = supports_session_scope
         session_id = (
             self._session.id if self._session is not None else self.settings.session_id or "desktop"
         )
+        policy = self._workspace_policy()
+        supports_session_scope = (
+            tool.name not in _ONCE_ONLY_APPROVAL_TOOLS
+            and WorkspacePolicy._effect_kind(tool.side_effect) not in _ONCE_ONLY_EFFECTS
+            and not (policy is not None and policy.session_distrusted(session_id))
+        )
+        self._approval_session_scopes[request_id] = supports_session_scope
         approval_event = self._compact_control_event(
             Event(
                 session_id=session_id,
@@ -1055,12 +1102,15 @@ class RuntimeHost(threading.Thread):
     ) -> ApprovalResult:
         if self._closing:
             return ApprovalResult(False, "runtime is stopping")
-        request_id = str(uuid4())
-        future: asyncio.Future[ApprovalResult] = asyncio.get_running_loop().create_future()
-        self._approvals[request_id] = future
         supports_session_scope = not any(
             category.startswith("sensitive_") for category in request.data_categories
         )
+        trusted = self.settings.egress_trusted
+        if supports_session_scope and trusted is not None and trusted(request.endpoint):
+            return ApprovalResult(True, "the user chose this provider", ApprovalScope.SESSION)
+        request_id = str(uuid4())
+        future: asyncio.Future[ApprovalResult] = asyncio.get_running_loop().create_future()
+        self._approvals[request_id] = future
         self._approval_session_scopes[request_id] = supports_session_scope
         emitted = self._emit(
             "approval.requested",

@@ -3,10 +3,11 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 
 import type { ActorLook } from '../cast'
 import type { Place, Point } from '../layout'
-import { createFinishes, disposeFinishes, type Finishes } from '../mesh-kit'
+import { GRAPHICS, HIGH_AMBIENT_SHARE, createDrawing, dressFinishes, releaseEnvironment, rimLight, type GraphicsQuality } from '../graphics'
+import { createFinishes, disposeFinishes, setShapeDetail, type Finishes } from '../mesh-kit'
 import type { FloorGrid } from '../paths'
 import { Person, type Action } from '../person'
-import type { StudioOptions } from '../scene'
+import { labelAt, type StudioOptions } from '../scene'
 
 /**
  * The stage the campus's places are drawn on: the renderer, the light, the camera that frames a
@@ -93,12 +94,59 @@ export interface PlaceScene<M> {
 
 const FRAME_MS = 1000 / 60
 const RESTING_FRAME_MS = 1000 / 30
-const ARRIVE_SECONDS = 1.2
+const ARRIVE_SECONDS = 1.1
 const APPROACH_SECONDS = 0.7
 const SUN = new THREE.Vector3(-5, 11, 8)
 const HOVER = '__hover'
+/** How long the renderer of a closed place is kept for the next one. */
+const KEEP_MS = 60_000
 
 interface View { target: THREE.Vector3; radius: number; polar: number; azimuth: number }
+
+/**
+ * The renderer and its finishes, passed from one place to the next: going into a building does
+ * not make a new GL context and compile the shaders again, which left the stage blank for a
+ * moment. The last one is let go a minute after its place closed, or at once when the graphics
+ * setting changed (a high-quality renderer is made for the discrete GPU).
+ */
+interface Kit { renderer: THREE.WebGLRenderer; finishes: Finishes; quality: GraphicsQuality }
+let kept: Kit | null = null
+let keptTimer = 0
+
+function release({ renderer, finishes }: Kit): void {
+  disposeFinishes(finishes)
+  releaseEnvironment(renderer)
+  renderer.dispose()
+  renderer.forceContextLoss()
+}
+
+function takeKit(quality: GraphicsQuality): Kit {
+  window.clearTimeout(keptTimer)
+  const taken = kept
+  kept = null
+  if (taken && taken.quality === quality && !taken.renderer.getContext().isContextLost()) return taken
+  if (taken) release(taken)
+  const profile = GRAPHICS[quality]
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: profile.powerPreference })
+  renderer.shadowMap.enabled = true
+  renderer.shadowMap.type = THREE.PCFShadowMap
+  renderer.outputColorSpace = THREE.SRGBColorSpace
+  renderer.toneMapping = THREE.ACESFilmicToneMapping
+  renderer.domElement.classList.add('studio-canvas')
+  renderer.domElement.setAttribute('aria-hidden', 'true')
+  return { renderer, finishes: createFinishes(), quality }
+}
+
+function keepKit(kit: Kit): void {
+  kit.renderer.domElement.remove()
+  if (kept) release(kept)
+  kept = kit
+  keptTimer = window.setTimeout(() => {
+    if (kept !== kit) return
+    kept = null
+    release(kit)
+  }, KEEP_MS)
+}
 
 interface Member {
   person: Person
@@ -108,8 +156,19 @@ interface Member {
   key: string
 }
 
+/** A user's camera move: slow at both ends. */
 function ease(t: number): number {
   return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2
+}
+
+/** Coming in: quick at first, settling softly. */
+function settle(t: number): number {
+  return 1 - (1 - t) ** 3
+}
+
+/** Going into a building: gathering speed as the place fades. */
+function dive(t: number): number {
+  return t * t * (2 - t)
 }
 
 export function createPlaceScene<M>(
@@ -119,15 +178,17 @@ export function createPlaceScene<M>(
   build: PlaceBuilder<M>,
   handlers: { pick(id: string): void },
 ): PlaceScene<M> {
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'low-power' })
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5))
-  renderer.shadowMap.enabled = true
-  renderer.shadowMap.type = THREE.PCFShadowMap
-  renderer.outputColorSpace = THREE.SRGBColorSpace
-  renderer.toneMapping = THREE.ACESFilmicToneMapping
+  const created = performance.now()
+  const quality = options.quality ?? 'standard'
+  const profile = GRAPHICS[quality]
+  setShapeDetail(quality)
+  const kit = takeKit(quality)
+  const { renderer } = kit
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, profile.maxPixelRatio))
   renderer.toneMappingExposure = options.dark ? 1.05 : 1.0
-  renderer.domElement.classList.add('studio-canvas')
-  renderer.domElement.setAttribute('aria-hidden', 'true')
+  renderer.domElement.style.cursor = ''
+  delete stage.dataset.drawn
+  delete stage.dataset.leaving
   stage.prepend(renderer.domElement)
 
   const scene = new THREE.Scene()
@@ -139,19 +200,23 @@ export function createPlaceScene<M>(
   controls.rotateSpeed = 0.6
   controls.zoomSpeed = 0.8
 
-  scene.add(new THREE.HemisphereLight(options.dark ? '#9fb0e0' : '#fff6ea', options.dark ? '#3a3040' : '#b8a48c', options.dark ? 1.35 : 1.5))
+  // In high quality the reflected room (graphics.ts) brings part of the sky's light.
+  const ambient = quality === 'high' ? HIGH_AMBIENT_SHARE : 1
+  scene.add(new THREE.HemisphereLight(options.dark ? '#9fb0e0' : '#fff6ea', options.dark ? '#3a3040' : '#b8a48c', (options.dark ? 1.35 : 1.5) * ambient))
   const key = new THREE.DirectionalLight(options.dark ? '#b9c8ff' : '#fff1dc', options.dark ? 1.5 : 2.2)
   key.castShadow = true
-  key.shadow.mapSize.set(2048, 2048)
+  key.shadow.mapSize.set(profile.shadowMapSize, profile.shadowMapSize)
   key.shadow.camera.near = 1
   key.shadow.bias = -0.0006
-  key.shadow.radius = 3
+  key.shadow.radius = profile.shadowRadius
   scene.add(key, key.target)
   const fill = new THREE.DirectionalLight(options.dark ? '#5b4b8a' : '#cfe3ff', options.dark ? 0.35 : 0.6)
   fill.position.set(9, 5, -3)
   scene.add(fill)
+  const drawing = createDrawing(renderer, scene, camera, quality, options.dark)
 
-  const finishes = createFinishes()
+  const { finishes } = kit
+  dressFinishes(renderer, finishes, quality, options.dark)
   const root = new THREE.Group()
   scene.add(root)
   const still = options.reducedMotion
@@ -178,6 +243,7 @@ export function createPlaceScene<M>(
   key.position.copy(SUN).multiplyScalar(1 + half / SUN.length()).add(centre)
   Object.assign(key.shadow.camera, { left: -half, right: half, top: half, bottom: -half, far: 2 * (SUN.length() + half) + 10 })
   key.shadow.camera.updateProjectionMatrix()
+  const rim = rimLight(scene, quality, options.dark, centre)
   const lamps = (place.lamps ?? []).map((at) => {
     const lamp = new THREE.PointLight(at.colour ?? '#ffcf8a', options.dark ? 9 : 2.5, 9, 1.4)
     lamp.position.set(at.x, at.y, at.z)
@@ -220,20 +286,22 @@ export function createPlaceScene<M>(
     controls.minAzimuthAngle = view.azimuth - 1.1
     controls.maxAzimuthAngle = view.azimuth + 1.0
   }
-  let move: { from: View; to: View; start: number; seconds: number; done?: () => void } | null = null
-  const fly = (to: View, seconds: number, done?: () => void): void => {
+  let move: { from: View; to: View; start: number; seconds: number; easing: (t: number) => number; arriving?: boolean; done?: () => void } | null = null
+  /** The user has turned or zoomed the view: a resize leaves the camera where they put it. */
+  let touched = false
+  const fly = (to: View, seconds: number, done?: () => void, easing = ease, arriving = false): void => {
     if (still || seconds <= 0) {
       setCamera(to)
       controls.update()
       done?.()
       return
     }
-    move = { from: current(), to, start: performance.now() / 1000, seconds, ...(done ? { done } : {}) }
+    move = { from: current(), to, start: performance.now() / 1000, seconds, easing, ...(arriving ? { arriving } : {}), ...(done ? { done } : {}) }
     controls.enabled = false
   }
   const stepMove = (now: number): void => {
     if (!move) return
-    const t = ease(Math.min(1, (now - move.start) / move.seconds))
+    const t = move.easing(Math.min(1, (now - move.start) / move.seconds))
     const { from, to } = move
     setCamera({
       target: from.target.clone().lerp(to.target, t),
@@ -375,11 +443,12 @@ export function createPlaceScene<M>(
       visible: projected.z < 1 && Math.abs(projected.x) < 1.15 && Math.abs(projected.y) < 1.15,
     }
   }
+  // Tags and signs fade out while the camera flies and back in once it has arrived (the
+  // overlay's data-moving, in studio.css); here they are only hidden off the stage.
   const lay = (): void => {
-    const shown = move === null
     for (const member of members.values()) {
       const point = project(member.person.position.x, member.person.top + 0.12, member.person.position.z)
-      const visible = shown && point.visible
+      const visible = point.visible
       member.tag.style.transform = `translate(${point.x.toFixed(1)}px, ${point.y.toFixed(1)}px) translate(-50%, -100%)`
       member.bubble.style.transform = `translate(${point.x.toFixed(1)}px, ${(point.y - 30).toFixed(1)}px) translate(-50%, -100%)`
       member.tag.style.visibility = visible ? 'visible' : 'hidden'
@@ -393,26 +462,45 @@ export function createPlaceScene<M>(
       const point = project(at.x, at.y, at.z)
       const left = Math.max(8, Math.min(point.x - sign.width / 2, stage.clientWidth - sign.width - 8))
       sign.element.style.transform = `translate(${left.toFixed(1)}px, ${point.y.toFixed(1)}px) translate(0, -100%)`
-      sign.element.style.visibility = shown && point.visible ? 'visible' : 'hidden'
+      sign.element.style.visibility = point.visible ? 'visible' : 'hidden'
       sign.element.style.zIndex = String(Math.round((1 - point.z) * 10000))
     }
     overlay.dataset.moving = move ? 'true' : 'false'
   }
 
   let framed = false
+  /** The shaders are compiled: the place can be drawn and the camera come in. */
+  let compiled = false
+  let arrival: View | null = null
+  const arrive = (): void => {
+    if (!arrival || !compiled) return
+    fly(arrival, ARRIVE_SECONDS, undefined, settle, true)
+    arrival = null
+  }
   const resize = (): void => {
     const width = Math.max(1, stage.clientWidth)
     const height = Math.max(1, stage.clientHeight)
     renderer.setSize(width, height, false)
+    drawing.setSize(width, height)
     camera.aspect = width / height
     camera.updateProjectionMatrix()
     if (!framed && stage.clientWidth > 0) {
       framed = true
       // Coming in: from a little further out and higher, the camera settles on the place.
       const to = home()
-      setCamera({ ...to, radius: to.radius * 1.45, polar: Math.max(0.35, to.polar - 0.18), azimuth: to.azimuth + 0.3 })
+      setCamera({ ...to, radius: to.radius * 1.25, polar: Math.max(0.35, to.polar - 0.12), azimuth: to.azimuth + 0.22 })
       limit()
-      fly(to, ARRIVE_SECONDS)
+      arrival = to
+      arrive()
+    } else if (framed && !touched) {
+      // The stage changed size (a panel beside it came in): the place is framed again.
+      limit()
+      if (move?.arriving) move.to = home()
+      else if (arrival) arrival = home()
+      else if (!move) {
+        setCamera(home())
+        controls.update()
+      }
     }
   }
   const observer = new ResizeObserver(resize)
@@ -442,17 +530,25 @@ export function createPlaceScene<M>(
   const onDown = (event: PointerEvent): void => {
     down = { x: event.clientX, y: event.clientY }
     handledUntil = performance.now() + 1500
+    touched = true
   }
   const onUp = (event: PointerEvent): void => {
     if (down && Math.hypot(event.clientX - down.x, event.clientY - down.y) < 5) {
-      const pick = pickAt(event)
-      if (pick) handlers.pick(pick)
+      const label = labelAt(overlay, event.clientX, event.clientY)
+      const pick = label ? null : pickAt(event)
+      if (label) label.click()
+      else if (pick) handlers.pick(pick)
     }
     down = null
   }
   const onMove = (event: PointerEvent): void => {
     if (event.buttons) {
       handledUntil = performance.now() + 1500
+      return
+    }
+    if (labelAt(overlay, event.clientX, event.clientY)) {
+      // Over a label its own sign stays as it is: the pointer has not left what the sign is about.
+      renderer.domElement.style.cursor = 'pointer'
       return
     }
     const pick = pickAt(event)
@@ -468,8 +564,14 @@ export function createPlaceScene<M>(
     hovered = null
     showSigns(shownLabels)
   }
-  const onWheel = (): void => { handledUntil = performance.now() + 1500 }
+  const onWheel = (): void => {
+    handledUntil = performance.now() + 1500
+    touched = true
+  }
   const onLost = (event: Event): void => event.preventDefault()
+  // The GPU gave the context back (three.js sets itself up again): drawn again at the full rate.
+  const onRestored = (): void => { handledUntil = performance.now() + 1500 }
+  renderer.domElement.addEventListener('webglcontextrestored', onRestored)
   renderer.domElement.addEventListener('pointerdown', onDown)
   renderer.domElement.addEventListener('pointerup', onUp)
   renderer.domElement.addEventListener('pointermove', onMove)
@@ -510,8 +612,13 @@ export function createPlaceScene<M>(
     lively = walking || move !== null
     if (move) stepMove(now)
     else controls.update()
-    renderer.render(scene, camera)
+    drawing.render()
     lay()
+    // Drawn once: the stage fades the place in (studio.css), and notes how long that took.
+    if (stage.dataset.drawn !== 'true') {
+      stage.dataset.drawn = 'true'
+      stage.dataset.firstFrameMs = String(Math.round(performance.now() - created))
+    }
     spent += performance.now() - began
     measured += 1
     if (measured >= 60) {
@@ -522,7 +629,16 @@ export function createPlaceScene<M>(
       spent = 0
     }
   }
-  frame = requestAnimationFrame(loop)
+  // Shaders the renderer does not have yet are compiled off the main thread where the driver
+  // allows; drawing (and the camera's arrival) starts once they are ready.
+  const begin = (): void => {
+    if (disposed || compiled) return
+    compiled = true
+    arrive()
+    frame = requestAnimationFrame(loop)
+  }
+  if (typeof renderer.compileAsync === 'function') void renderer.compileAsync(scene, camera).then(begin, begin)
+  else begin()
 
   return {
     update(next) {
@@ -538,7 +654,9 @@ export function createPlaceScene<M>(
       const point = place.target?.(id)
       if (!point || disposed) return Promise.resolve()
       const view = current()
-      return new Promise((resolve) => fly({ target: new THREE.Vector3(point.x, point.y, point.z), radius: view.radius * 0.35, polar: Math.min(view.polar + 0.15, 1.3), azimuth: view.azimuth }, APPROACH_SECONDS, resolve))
+      // The place fades as the camera dives in (studio.css), so the next one comes in clean.
+      stage.dataset.leaving = 'true'
+      return new Promise((resolve) => fly({ target: new THREE.Vector3(point.x, point.y, point.z), radius: view.radius * 0.35, polar: Math.min(view.polar + 0.15, 1.3), azimuth: view.azimuth }, APPROACH_SECONDS, resolve, dive))
     },
     dispose() {
       disposed = true
@@ -550,6 +668,7 @@ export function createPlaceScene<M>(
       renderer.domElement.removeEventListener('pointerleave', onLeave)
       renderer.domElement.removeEventListener('wheel', onWheel)
       renderer.domElement.removeEventListener('webglcontextlost', onLost)
+      renderer.domElement.removeEventListener('webglcontextrestored', onRestored)
       controls.dispose()
       for (const member of members.values()) removeMember(member)
       members.clear()
@@ -557,11 +676,13 @@ export function createPlaceScene<M>(
       signs.clear()
       place.dispose()
       for (const lamp of lamps) lamp.dispose()
+      key.dispose()
+      fill.dispose()
+      rim?.dispose()
+      drawing.dispose()
       root.removeFromParent()
-      disposeFinishes(finishes)
-      renderer.dispose()
-      renderer.forceContextLoss()
-      renderer.domElement.remove()
+      // The renderer and its finishes wait for the next place.
+      keepKit(kit)
     },
   }
 }

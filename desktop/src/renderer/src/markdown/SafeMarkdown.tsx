@@ -6,12 +6,14 @@ import remarkGfm from 'remark-gfm'
 
 import { classifyExternalUrl, classifyWorkspaceLink, resolveResourceImage, type ResourceCapability } from './resource-policy'
 import { HighlightedCode } from './HighlightedCode'
+import { MermaidDiagram } from './MermaidDiagram'
+import { normalizeMath, remarkRawHtmlAsText } from './source'
 import { useOptionalI18n } from '../i18n/I18nProvider'
 
 type MathPlugins = typeof import('./math-plugins')
 
-// Inline $x$, display $$x$$, and LaTeX \( \) / \[ \] delimiters.
-const MATH_PATTERN = /\$[^$\n]+\$|\$\$|\\\(|\\\[/
+// A formula's edge in the normalized source: an unescaped "$". Escaped ones are money.
+const MATH_PATTERN = /(?:^|[^\\])\$/
 let mathPlugins: MathPlugins | null = null
 let mathPluginsPromise: Promise<MathPlugins> | null = null
 
@@ -58,21 +60,22 @@ export const SafeMarkdown = memo(function SafeMarkdown({ source, resources = [],
   const capabilities = useMemo(() => [...resources], [resources])
   const visibleSource = useMemo(() => source.slice(0, 500_000), [source])
   const truncated = source.length > 500_000
-  const math = useMathPlugins(streaming ? '' : visibleSource)
+  const normalized = useMemo(() => (streaming ? '' : normalizeMath(visibleSource)), [streaming, visibleSource])
+  const math = useMathPlugins(normalized)
   if (streaming) {
     return <div className="markdown-body markdown-streaming" aria-live="polite">{visibleSource}</div>
   }
   return (
     <div className="markdown-body">
       <ReactMarkdown
-        skipHtml
-        remarkPlugins={math ? [remarkGfm, math.remarkMath] : [remarkGfm]}
+        remarkPlugins={math ? [remarkGfm, math.remarkMath, remarkRawHtmlAsText] : [remarkGfm, remarkRawHtmlAsText]}
         rehypePlugins={math ? [[rehypeSanitize, schema], math.rehypeKatex] : [[rehypeSanitize, schema]]}
         components={{
           pre: ({ children }) => <>{children}</>,
           code: ({ className, children }) => {
             const match = /language-([A-Za-z0-9_-]+)/.exec(className ?? '')
             if (!match) return <code>{children}</code>
+            if (match[1]?.toLowerCase() === 'mermaid') return <MermaidDiagram code={String(children).replace(/\n$/, '')} />
             return <HighlightedCode language={match[1]} code={String(children).replace(/\n$/, '')} />
           },
           a: ({ href, children }) => {
@@ -99,7 +102,7 @@ export const SafeMarkdown = memo(function SafeMarkdown({ source, resources = [],
           },
         }}
       >
-        {visibleSource}
+        {normalized}
       </ReactMarkdown>
       {truncated ? <p className="markdown-truncation-note" role="status">{t('markdown.truncated')}</p> : null}
     </div>

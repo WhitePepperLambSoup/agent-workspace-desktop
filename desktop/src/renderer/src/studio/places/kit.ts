@@ -1,7 +1,8 @@
 import * as THREE from 'three'
 
+import { fineChair, fineDesk, fineKeyboard, fineMonitor, finePlant, paintFineWood, wainscot } from '../fine'
 import type { Box } from '../layout'
-import { Batch, boxShape, cylinderShape, dodecaShape, meshesOf, torusShape, type Finishes } from '../mesh-kit'
+import { Batch, boxShape, cylinderShape, dodecaShape, meshesOf, shapeDetail, torusShape, type Finishes } from '../mesh-kit'
 
 /**
  * Pieces the campus's places share with the studio's look: floors, the two walls of a room open
@@ -21,16 +22,20 @@ export function palette(dark: boolean) {
     : { wall: '#f1ece4', wallLow: '#e6ddd0', trim: '#d9cfc1', skirt: '#e9e4dc', sky: '#bfe3ff', frame: '#e8e2d8', wood: '#a5784f', woodLight: '#bf9468', deskTop: '#e8dccb', deskFrame: '#9aa1ab', chair: '#4c5566', seat: '#5c677c', pot: '#c1785a', soil: '#5a4030', leaf: '#4f8a5b', leafLight: '#6aa86f', metal: '#9aa1ab', dim: '#203048' }
 }
 
+/** A pattern painted at `size` (twice as many pixels in high detail, sharper at a slant). */
 function canvas(size: number, paint: (context: CanvasRenderingContext2D) => void): THREE.CanvasTexture {
+  const scale = shapeDetail() === 'high' ? 2 : 1
   const element = document.createElement('canvas')
-  element.width = size
-  element.height = size
-  paint(element.getContext('2d')!)
+  element.width = size * scale
+  element.height = size * scale
+  const context = element.getContext('2d')!
+  context.scale(scale, scale)
+  paint(context)
   const texture = new THREE.CanvasTexture(element)
   texture.wrapS = THREE.RepeatWrapping
   texture.wrapT = THREE.RepeatWrapping
   texture.colorSpace = THREE.SRGBColorSpace
-  texture.anisotropy = 4
+  texture.anisotropy = scale > 1 ? 16 : 4
   return texture
 }
 
@@ -38,6 +43,10 @@ function canvas(size: number, paint: (context: CanvasRenderingContext2D) => void
 function floorTexture(style: FloorStyle, dark: boolean): THREE.CanvasTexture {
   if (style === 'wood') {
     return canvas(512, (context) => {
+      if (shapeDetail() === 'high') {
+        paintFineWood(context, dark)
+        return
+      }
       context.fillStyle = dark ? '#76604b' : '#c9a37c'
       context.fillRect(0, 0, 512, 512)
       for (let row = 0; row < 8; row += 1) {
@@ -144,6 +153,10 @@ export function walls(batch: Batch, dark: boolean, colours: { wall?: string; low
     batch.add(boxShape(width, h, 0.04), c.trim, { y, z: box.z0 + 0.02 }, 'satin', false)
     batch.add(boxShape(0.04, h, depth), c.trim, { x: box.x0 + 0.02, y }, 'satin', false)
   }
+  if (shapeDetail() === 'high') {
+    wainscot(batch, c.trim, 'x', box.z0 + 0.008, box.x0 + 0.1, box.x1 - 0.1, lowWall)
+    wainscot(batch, c.trim, 'z', box.x0 + 0.008, box.z0 + 0.1, box.z1 - 0.1, lowWall)
+  }
   if (window) {
     batch.add(boxShape(window.width + 0.2, 1.36, 0.06, 0.02), c.frame, { x: window.x, y: 1.62, z: box.z0 + 0.03 }, 'satin', false)
     batch.add(boxShape(window.width, 1.14, 0.02), c.sky, { x: window.x, y: 1.62, z: box.z0 + 0.065 }, 'glow', false)
@@ -157,6 +170,10 @@ export function walls(batch: Batch, dark: boolean, colours: { wall?: string; low
 
 export function plant(batch: Batch, dark: boolean, x: number, z: number, tall = false): void {
   const c = palette(dark)
+  if (shapeDetail() === 'high') {
+    finePlant(batch, c, { x, z, tall })
+    return
+  }
   batch.add(cylinderShape(0.21, 0.15, 0.38, 18), c.pot, { x, y: 0.19, z }, 'satin')
   batch.add(torusShape(0.205, 0.02, Math.PI * 2, 6, 18), c.pot, { x, y: 0.38, z, rx: Math.PI / 2 }, 'satin', false)
   batch.add(cylinderShape(0.19, 0.19, 0.02, 16), c.soil, { x, y: 0.36, z }, 'matte', false)
@@ -175,6 +192,13 @@ export function desk(batch: Batch, dark: boolean, x: number, z: number, width = 
   const c = palette(dark)
   const depth = 0.7
   const seatZ = z - 0.75
+  if (shapeDetail() === 'high') {
+    fineDesk(batch, c, { x, z, width, depth })
+    fineMonitor(batch, { x, y: 1.0, z: z + 0.2 })
+    fineKeyboard(batch, { x, z: z - 0.12 })
+    fineChair(batch, c, { x, z: seatZ })
+    return new THREE.Vector3(x, 1.0, z + 0.18)
+  }
   batch.add(boxShape(width, 0.045, depth, 0.015), c.deskTop, { x, y: 0.645, z }, 'satin')
   for (const side of [-1, 1]) batch.add(boxShape(0.04, 0.62, depth - 0.06, 0.01), c.deskFrame, { x: x + side * (width / 2 - 0.05), y: 0.31, z }, 'metal')
   batch.add(boxShape(0.22, 0.014, 0.14, 0.006), '#2a2d35', { x, y: 0.674, z: z + 0.2 }, 'metal')

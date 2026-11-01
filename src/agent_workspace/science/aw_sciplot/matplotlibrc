@@ -1,0 +1,5 @@
+# Defaults for the charts the agent draws: Latin text in Matplotlib's own font, and what it lacks,
+# Chinese above all, from Windows' own. Only a list in font.family falls back glyph by glyph.
+# The minus sign stays one those fonts can draw. A project's own matplotlibrc comes first.
+font.family: DejaVu Sans, Microsoft YaHei
+axes.unicode_minus: False

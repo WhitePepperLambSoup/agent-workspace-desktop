@@ -11,6 +11,8 @@ interface QuitCoordinatorOptions {
   requestQuit: () => void
   reportError: (error: unknown) => void
   confirmQuit?: () => boolean
+  /** What closing the window means; the window stays until this answers. Without it, closing quits. */
+  decideClose?: () => Promise<'hide' | 'quit' | 'stay'>
 }
 
 export class QuitCoordinator {
@@ -23,6 +25,11 @@ export class QuitCoordinator {
     return this.approvedExit
   }
 
+  /** The system is ending the session: no prompt, and no hiding in the background. */
+  approveExit(): void {
+    this.approvedExit = true
+  }
+
   private confirmExit(): boolean {
     if (this.approvedExit) return true
     if (this.options.confirmQuit?.() === false) return false
@@ -32,6 +39,20 @@ export class QuitCoordinator {
 
   onWindowClose(event: QuitEvent): void {
     if (this.quitting) return
+    const { decideClose } = this.options
+    if (decideClose && !this.approvedExit) {
+      event.preventDefault()
+      void decideClose().then(
+        (choice) => {
+          if (choice === 'quit' && this.confirmExit()) this.options.requestQuit()
+        },
+        (error: unknown) => {
+          this.options.reportError(error)
+          if (this.confirmExit()) this.options.requestQuit()
+        },
+      )
+      return
+    }
     if (!this.confirmExit()) {
       event.preventDefault()
       return

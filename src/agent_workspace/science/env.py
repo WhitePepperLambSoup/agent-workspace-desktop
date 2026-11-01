@@ -68,7 +68,9 @@ STARTUP_FILE = "aw_science_defaults.pth"
 STARTUP = (
     "import os, sys; "
     "os.environ.setdefault('OPENBLAS_NUM_THREADS', '4'); "
-    "os.environ.setdefault('MPLCONFIGDIR', os.path.join(sys.prefix, 'mplconfig'))\n"
+    "os.environ.setdefault('MPLCONFIGDIR', os.path.join(sys.prefix, 'mplconfig')); "
+    "os.environ.setdefault('MATPLOTLIBRC', os.path.join(sys.prefix, 'Lib', 'site-packages', "
+    "'aw_sciplot', 'matplotlibrc'))\n"
 )
 
 

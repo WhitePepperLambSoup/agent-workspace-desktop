@@ -6,6 +6,7 @@ import {
   BACKDROPS,
   COLOR_MODES,
   DEFAULT_APPEARANCE,
+  GRAPHICS_QUALITIES,
   type AppearanceState,
   resolveAppearance,
 } from '../design/appearance'
@@ -13,6 +14,7 @@ import { Workbench } from '../workbench/Workbench'
 import type { WorkbenchBridgeClient } from '../bridge/client'
 import { createContributionRegistry, type ContributionRegistry } from '../extensions/registry'
 import { useI18n, type I18nValue } from '../i18n/I18nProvider'
+import { useMainStrings } from './main-strings'
 
 export const APPEARANCE_STORAGE_KEY = 'agent-workspace.appearance.v2'
 
@@ -30,7 +32,8 @@ function loadAppearance(): AppearanceState {
       typeof candidate.highContrast !== 'boolean' ||
       (candidate.transparentDesktop !== undefined && typeof candidate.transparentDesktop !== 'boolean') ||
       (candidate.refraction !== undefined && typeof candidate.refraction !== 'boolean') ||
-      (candidate.backdrop !== undefined && !BACKDROPS.includes(candidate.backdrop))
+      (candidate.backdrop !== undefined && !BACKDROPS.includes(candidate.backdrop)) ||
+      (candidate.graphics !== undefined && !GRAPHICS_QUALITIES.includes(candidate.graphics))
     ) {
       return DEFAULT_APPEARANCE
     }
@@ -45,6 +48,7 @@ function loadAppearance(): AppearanceState {
       transparentDesktop: resolved.transparentDesktop ?? false,
       ...(resolved.refraction === false ? { refraction: false } : {}),
       ...(resolved.backdrop === 'field' ? { backdrop: 'field' as const } : {}),
+      ...(resolved.graphics === 'high' ? { graphics: 'high' as const } : {}),
     }
   } catch {
     return DEFAULT_APPEARANCE
@@ -60,6 +64,7 @@ function nativeStatusLabel(result: NativeAppearanceResult | null, t: I18nValue['
 
 export function App({ client, registry }: { client?: WorkbenchBridgeClient; registry?: ContributionRegistry }) {
   const i18n = useI18n()
+  useMainStrings()
   const [appearance, setAppearance] = useState<AppearanceState>(loadAppearance)
   const [nativeAppearance, setNativeAppearance] = useState<NativeAppearanceResult | null>(null)
   const [systemColorMode, setSystemColorMode] = useState<'dark' | 'light'>(() =>
@@ -110,6 +115,7 @@ export function App({ client, registry }: { client?: WorkbenchBridgeClient; regi
       transparentDesktop: next.transparentDesktop,
       ...(next.refraction === false ? { refraction: false } : {}),
       ...(next.backdrop === 'field' ? { backdrop: 'field' as const } : {}),
+      ...(next.graphics === 'high' ? { graphics: 'high' as const } : {}),
     }
     setAppearance(stored)
     try {
@@ -131,6 +137,7 @@ export function App({ client, registry }: { client?: WorkbenchBridgeClient; regi
       data-desktop-transparent={resolved.effectiveTransparentDesktop ? 'true' : 'false'}
       data-refraction={resolved.effectiveRefraction ? 'true' : 'false'}
       data-backdrop={resolved.effectiveBackdrop}
+      data-graphics={appearance.graphics ?? 'standard'}
       style={{ '--appearance-intensity': appearance.intensity } as React.CSSProperties}
     >
       <Workbench

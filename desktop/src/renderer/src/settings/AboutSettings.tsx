@@ -1,8 +1,8 @@
-import { Download, FileText, FolderOpen, Info, LoaderCircle, RefreshCw, RotateCw } from 'lucide-react'
+import { Download, ExternalLink, FileText, FolderOpen, Info, LoaderCircle, MessageCircleWarning, RefreshCw, RotateCw } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
 
 import type { DesktopHostApi } from '../../../shared/api'
-import { isValidUpdateFeedUrl, type AppInfo, type UpdateStatus } from '../../../shared/desktop'
+import { isValidUpdateFeedUrl, releaseNotesUrl, type AppInfo, type UpdateStatus } from '../../../shared/desktop'
 import { useI18n, type I18nValue } from '../i18n/I18nProvider'
 
 export interface AboutSettingsProps {
@@ -12,6 +12,10 @@ export interface AboutSettingsProps {
   /** Gathers non-secret workbench facts to include in an exported diagnostics report. */
   collectDiagnostics?: () => Promise<Record<string, unknown>>
 }
+
+const REPOSITORY_URL = 'https://github.com/WhitePepperLambSoup/agent-workspace-desktop'
+const helpUrl = (locale: string): string => `${REPOSITORY_URL}/blob/main/docs/${locale === 'zh-CN' || locale === 'zh-TW' ? 'HELP.zh-CN.md' : 'HELP.md'}`
+const ISSUES_URL = `${REPOSITORY_URL}/issues/new`
 
 function statusText(status: UpdateStatus, t: I18nValue['t']): string {
   switch (status.state) {
@@ -35,7 +39,7 @@ function statusText(status: UpdateStatus, t: I18nValue['t']): string {
 }
 
 function AboutSettingsView({ host, i18n, collectDiagnostics }: { host: DesktopHostApi; i18n: I18nValue; collectDiagnostics?: AboutSettingsProps['collectDiagnostics'] }) {
-  const { t } = i18n
+  const { t, locale } = i18n
   const feedId = useId()
   const [info, setInfo] = useState<AppInfo | null>(null)
   const [status, setStatus] = useState<UpdateStatus | null>(null)
@@ -44,6 +48,8 @@ function AboutSettingsView({ host, i18n, collectDiagnostics }: { host: DesktopHo
   const [feedError, setFeedError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [diagnostics, setDiagnostics] = useState<{ state: 'idle' | 'working' | 'saved' | 'failed'; path?: string }>({ state: 'idle' })
+  const [autoCheck, setAutoCheck] = useState<boolean | null>(null)
+  const autoCheckId = useId()
 
   const exportDiagnostics = async (): Promise<void> => {
     if (diagnostics.state === 'working') return
@@ -64,6 +70,7 @@ function AboutSettingsView({ host, i18n, collectDiagnostics }: { host: DesktopHo
 
   useEffect(() => {
     let active = true
+    void host.getUpdateAutoCheck().then((enabled) => { if (active) setAutoCheck(enabled) }, () => undefined)
     void Promise.allSettled([host.getAppInfo(), host.getUpdateStatus(), host.getUpdateFeed()]).then(([appInfo, update, url]) => {
       if (!active) return
       if (appInfo.status === 'fulfilled') setInfo(appInfo.value)
@@ -147,7 +154,24 @@ function AboutSettingsView({ host, i18n, collectDiagnostics }: { host: DesktopHo
       ) : null}
       <p className="about-diagnostics-note">{t('settings.about.diagnosticsNote')}</p>
 
+      <div className="provider-actions about-actions">
+        <button type="button" className="provider-secondary" onClick={() => void window.agentWorkspace?.openExternal?.(helpUrl(locale))}>
+          <ExternalLink size={14} aria-hidden="true" />
+          <span>{t('settings.about.help')}</span>
+        </button>
+        <button type="button" className="provider-secondary" onClick={() => void window.agentWorkspace?.openExternal?.(`${ISSUES_URL}?body=${encodeURIComponent(`Version: ${info?.version ?? ''}\nWindows: ${info?.platform ?? ''}\n\n`)}`)}>
+          <MessageCircleWarning size={14} aria-hidden="true" />
+          <span>{t('settings.about.report')}</span>
+        </button>
+      </div>
+
       <h3 className="about-subheading">{t('settings.about.updates')}</h3>
+      {autoCheck !== null && !unsupported ? (
+        <label className="settings-toggle" htmlFor={autoCheckId}>
+          <input id={autoCheckId} type="checkbox" role="switch" checked={autoCheck} onChange={(event) => { setAutoCheck(event.target.checked); void host.setUpdateAutoCheck(event.target.checked) }} />
+          <span>{t('settings.about.autoCheck')}</span>
+        </label>
+      ) : null}
       {unsupported ? null : (
         <form
           className="settings-row about-feed"
@@ -188,6 +212,12 @@ function AboutSettingsView({ host, i18n, collectDiagnostics }: { host: DesktopHo
       ) : null}
 
       <div className="provider-actions about-actions">
+        {status?.state === 'available' ? (
+          <button type="button" className="provider-secondary" onClick={() => void window.agentWorkspace?.openExternal?.(releaseNotesUrl(status.version))}>
+            <ExternalLink size={14} aria-hidden="true" />
+            <span>{t('settings.about.notes')}</span>
+          </button>
+        ) : null}
         {status?.state === 'available' ? (
           <button type="button" className="provider-primary" disabled={busy} onClick={() => void run(() => host.downloadUpdate())}>
             <Download size={14} aria-hidden="true" />

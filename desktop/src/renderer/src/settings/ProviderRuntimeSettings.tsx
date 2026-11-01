@@ -12,6 +12,7 @@ import { useI18n, type I18nValue } from '../i18n/I18nProvider'
 import type { MessageKey } from '../i18n/messages'
 import type { WorkbenchBridgeClient } from '../bridge/client'
 import type { WorkbenchState } from '../state/workbench-store'
+import { CLOUD_PROVIDER_PRESETS, healthErrorKey, LOCAL_PROVIDER_PRESETS } from './provider-presets'
 
 type ProviderProtocolOption = (typeof PROVIDER_PROTOCOLS)[number]
 
@@ -26,16 +27,7 @@ interface ProviderDraft {
   hasCredential: boolean
 }
 
-/**
- * Local model servers. Loopback addresses use 127.0.0.1 because only a literal
- * loopback IP is trusted for provider egress without a prompt.
- */
-export const LOCAL_PROVIDER_PRESETS: readonly { id: string; name: string; protocol: ProviderProtocol; baseUrl: string }[] = [
-  { id: 'llama-cpp', name: 'llama.cpp', protocol: 'openai-compatible', baseUrl: 'http://127.0.0.1:8080/v1' },
-  { id: 'lm-studio', name: 'LM Studio', protocol: 'openai-compatible', baseUrl: 'http://127.0.0.1:1234/v1' },
-  { id: 'vllm', name: 'vLLM', protocol: 'openai-compatible', baseUrl: 'http://127.0.0.1:8000/v1' },
-  { id: 'ollama-local', name: 'Ollama', protocol: 'ollama', baseUrl: 'http://127.0.0.1:11434' },
-]
+export { LOCAL_PROVIDER_PRESETS }
 
 const EMPTY_DRAFT: ProviderDraft = {
   providerId: '',
@@ -327,14 +319,15 @@ function ProviderRuntimeSettingsView({ state, client, confirmDelete, i18n }: Pro
   }
 
   const applyPreset = (presetId: string): void => {
-    const preset = LOCAL_PROVIDER_PRESETS.find((item) => item.id === presetId)
+    const preset = [...CLOUD_PROVIDER_PRESETS, ...LOCAL_PROVIDER_PRESETS].find((item) => item.id === presetId)
     if (!preset) return
     setDraft((current) => ({
       ...current,
       providerId: current.providerId.trim() ? current.providerId : preset.id,
-      name: preset.name,
+      name: preset.nameKey ? t(preset.nameKey) : preset.name,
       protocol: preset.protocol,
       baseUrl: preset.baseUrl,
+      model: preset.model || current.model,
     }))
     setMessage(null)
     setError(null)
@@ -530,7 +523,12 @@ function ProviderRuntimeSettingsView({ state, client, confirmDelete, i18n }: Pro
             <span>{t('settings.provider.localPreset')}</span>
             <select value="" disabled={disabled} onChange={(event) => applyPreset(event.target.value)}>
               <option value="">{t('settings.provider.localPresetChoose')}</option>
-              {LOCAL_PROVIDER_PRESETS.map((preset) => <option key={preset.id} value={preset.id}>{preset.name} · {preset.baseUrl}</option>)}
+              <optgroup label={t('setup.group.cloud')}>
+                {CLOUD_PROVIDER_PRESETS.map((preset) => <option key={preset.id} value={preset.id}>{preset.nameKey ? t(preset.nameKey) : preset.name}</option>)}
+              </optgroup>
+              <optgroup label={t('setup.group.local')}>
+                {LOCAL_PROVIDER_PRESETS.map((preset) => <option key={preset.id} value={preset.id}>{preset.name} · {preset.baseUrl}</option>)}
+              </optgroup>
             </select>
             <small className="provider-hint">{t('settings.provider.localPresetHint')}</small>
           </label>
@@ -592,7 +590,7 @@ function ProviderRuntimeSettingsView({ state, client, confirmDelete, i18n }: Pro
             <strong>{t('settings.provider.healthResult')}</strong>
             <span>{t(`settings.provider.healthStatus.${health.status}` as MessageKey)}</span>
           </div>
-          <p>{health.message}</p>
+          <p>{health.ok ? health.message : t(healthErrorKey(health.errorCode))}</p>
           <dl className="fact-list provider-health-facts">
             <div><dt>{t('settings.provider.healthLatency')}</dt><dd>{health.latencyMs === null ? '?' : `${health.latencyMs} ms`}</dd></div>
             <div><dt>{t('settings.provider.healthKey')}</dt><dd>{health.apiKeyPresent ? t('settings.provider.credentialStored') : t('settings.provider.credentialMissing')}</dd></div>
@@ -601,7 +599,6 @@ function ProviderRuntimeSettingsView({ state, client, confirmDelete, i18n }: Pro
             <div><dt>{t('settings.provider.healthVision')}</dt><dd>{capabilityLabel(health.capabilities.vision)}</dd></div>
             <div><dt>{t('settings.provider.healthContext')}</dt><dd>{health.capabilities.contextWindow === null ? '?' : health.capabilities.contextWindow.toLocaleString()}</dd></div>
           </dl>
-          {health.remediation ? <p className="provider-hint">{health.remediation}</p> : null}
         </div>
       ) : null}
       {loading ? <p className="provider-status" role="status">{t('settings.provider.loading')}</p> : null}

@@ -6,6 +6,7 @@ import {
   type AppearanceState,
   type Backdrop,
   type ColorMode,
+  type GraphicsQuality,
 } from '../design/appearance'
 import type { AppearanceMode } from '../../../shared/appearance'
 import { useI18n, type I18nValue } from '../i18n/I18nProvider'
@@ -27,6 +28,11 @@ const MATERIALS: readonly { value: AppearanceMode; label: MessageKey }[] = [
 const BACKDROP_CHOICES: readonly { value: Backdrop; label: MessageKey }[] = [
   { value: 'studio', label: 'settings.appearance.backdrop.studio' },
   { value: 'field', label: 'settings.appearance.backdrop.field' },
+]
+
+const GRAPHICS_CHOICES: readonly { value: GraphicsQuality; label: MessageKey }[] = [
+  { value: 'standard', label: 'settings.appearance.graphics.standard' },
+  { value: 'high', label: 'settings.appearance.graphics.high' },
 ]
 
 const COLOR_CHOICES: readonly { value: ColorMode; label: MessageKey }[] = [
@@ -97,6 +103,30 @@ function AppearanceSettingsView({
                 className={selected ? 'is-selected' : undefined}
                 disabled={appearance.mode !== 'liquid' || appearance.highContrast || appearance.transparentDesktop}
                 onClick={() => update({ backdrop: choice.value })}
+              >
+                {t(choice.label)}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="settings-row">
+        <div className="setting-label">
+          <strong>{t('settings.appearance.graphics')}</strong>
+          <span>{t('settings.appearance.graphicsDescription')}</span>
+        </div>
+        <div className="segmented-control" role="radiogroup" aria-label={t('settings.appearance.graphics')}>
+          {GRAPHICS_CHOICES.map((choice) => {
+            const selected = (appearance.graphics ?? 'standard') === choice.value
+            return (
+              <button
+                key={choice.value}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                className={selected ? 'is-selected' : undefined}
+                onClick={() => update({ graphics: choice.value })}
               >
                 {t(choice.label)}
               </button>

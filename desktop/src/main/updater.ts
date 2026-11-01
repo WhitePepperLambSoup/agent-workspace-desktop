@@ -24,7 +24,12 @@ export interface UpdateControllerOptions {
   loadEngine: () => Promise<UpdaterEngine>
   onStatus: (status: UpdateStatus) => void
   log: (message: string, detail?: unknown) => void
+  now?: () => number
 }
+
+const AUTO_CHECK_FIRST_MS = 60_000
+const AUTO_CHECK_POLL_MS = 60 * 60_000
+const AUTO_CHECK_INTERVAL_MS = 24 * 60 * 60_000
 
 function message(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).slice(0, 500)
@@ -39,9 +44,17 @@ export class UpdateController {
   private status: UpdateStatus
   private engine: UpdaterEngine | null = null
   private configuredFeed: string | null
+  private autoCheck: boolean
+  private lastCheckedAt: number
+  private autoCheckTimer: NodeJS.Timeout | null = null
+  // A check nobody asked for fails quietly: being offline is not worth a message.
+  private quiet = false
 
   constructor(private readonly options: UpdateControllerOptions) {
-    this.configuredFeed = this.readFeed()
+    const saved = this.readSettings()
+    this.configuredFeed = saved.url
+    this.autoCheck = saved.autoCheck
+    this.lastCheckedAt = saved.lastCheckedAt
     this.status = this.baseStatus()
   }
 
@@ -55,17 +68,62 @@ export class UpdateController {
     return this.options.defaultFeed && isValidUpdateFeedUrl(this.options.defaultFeed) ? this.options.defaultFeed : null
   }
 
+  getAutoCheck(): boolean {
+    return this.autoCheck
+  }
+
+  setAutoCheck(enabled: boolean): boolean {
+    this.autoCheck = enabled
+    this.saveSettings()
+    return enabled
+  }
+
+  /** Looks for a new version once a day while the app runs, unless turned off; never downloads. */
+  startAutoChecks(): void {
+    if (this.autoCheckTimer || this.baseStatus().state === 'unsupported') return
+    this.scheduleAutoCheck(AUTO_CHECK_FIRST_MS)
+  }
+
+  stopAutoChecks(): void {
+    if (this.autoCheckTimer) clearTimeout(this.autoCheckTimer)
+    this.autoCheckTimer = null
+  }
+
+  private scheduleAutoCheck(delay: number): void {
+    this.autoCheckTimer = setTimeout(() => {
+      void this.runAutoCheck().finally(() => this.scheduleAutoCheck(AUTO_CHECK_POLL_MS))
+    }, delay)
+    this.autoCheckTimer.unref?.()
+  }
+
+  private async runAutoCheck(): Promise<void> {
+    const now = this.options.now?.() ?? Date.now()
+    if (!this.autoCheck || now - this.lastCheckedAt < AUTO_CHECK_INTERVAL_MS) return
+    // Something the user is in the middle of, or has already been told about, stays as it is.
+    if (this.status.state !== 'idle' && this.status.state !== 'not-available' && this.status.state !== 'error') return
+    this.quiet = true
+    try {
+      await this.check()
+    } finally {
+      this.quiet = false
+    }
+  }
+
+  private checked(): void {
+    this.lastCheckedAt = this.options.now?.() ?? Date.now()
+    this.saveSettings()
+  }
+
+  private fail(context: string, error: unknown): void {
+    this.options.log(context, error)
+    this.publish(this.quiet ? { state: 'idle' } : { state: 'error', message: message(error) })
+  }
+
   /** Persists a user-provided feed. Returns false for non-HTTPS input. */
   setFeed(url: string | null): boolean {
     if (url !== null && !isValidUpdateFeedUrl(url)) return false
     this.configuredFeed = url
-    try {
-      mkdirSync(dirname(this.options.settingsPath), { recursive: true })
-      writeFileSync(this.options.settingsPath, JSON.stringify({ url }), 'utf8')
-    } catch (error) {
-      this.options.log('Update feed could not be saved', error)
-      return false
-    }
+    if (!this.saveSettings()) return false
     this.engine = null
     this.publish(this.baseStatus())
     return true
@@ -83,8 +141,7 @@ export class UpdateController {
       const engine = await this.ensureEngine()
       await engine.checkForUpdates()
     } catch (error) {
-      this.options.log('Update check failed', error)
-      this.publish({ state: 'error', message: message(error) })
+      this.fail('Update check failed', error)
     }
     return this.status
   }
@@ -117,12 +174,27 @@ export class UpdateController {
     return { state: 'idle' }
   }
 
-  private readFeed(): string | null {
+  private readSettings(): { url: string | null; autoCheck: boolean; lastCheckedAt: number } {
     try {
-      const raw = JSON.parse(readFileSync(this.options.settingsPath, 'utf8')) as { url?: unknown }
-      return typeof raw.url === 'string' && isValidUpdateFeedUrl(raw.url) ? raw.url : null
+      const raw = JSON.parse(readFileSync(this.options.settingsPath, 'utf8')) as { url?: unknown; autoCheck?: unknown; lastCheckedAt?: unknown }
+      return {
+        url: typeof raw.url === 'string' && isValidUpdateFeedUrl(raw.url) ? raw.url : null,
+        autoCheck: raw.autoCheck !== false,
+        lastCheckedAt: typeof raw.lastCheckedAt === 'number' ? raw.lastCheckedAt : 0,
+      }
     } catch {
-      return null
+      return { url: null, autoCheck: true, lastCheckedAt: 0 }
+    }
+  }
+
+  private saveSettings(): boolean {
+    try {
+      mkdirSync(dirname(this.options.settingsPath), { recursive: true })
+      writeFileSync(this.options.settingsPath, JSON.stringify({ url: this.configuredFeed, autoCheck: this.autoCheck, lastCheckedAt: this.lastCheckedAt }), 'utf8')
+      return true
+    } catch (error) {
+      this.options.log('Update settings could not be saved', error)
+      return false
     }
   }
 
@@ -135,10 +207,14 @@ export class UpdateController {
     engine.autoInstallOnAppQuit = true
     engine.setFeedURL({ provider: 'generic', url: feed })
     engine.on('update-available', (info) => {
+      this.checked()
       const version = (info as { version?: unknown } | undefined)?.version
       this.publish({ state: 'available', version: typeof version === 'string' ? version : '' })
     })
-    engine.on('update-not-available', () => this.publish({ state: 'not-available', checkedAt: Date.now() }))
+    engine.on('update-not-available', () => {
+      this.checked()
+      this.publish({ state: 'not-available', checkedAt: Date.now() })
+    })
     engine.on('download-progress', (progress) => {
       const percent = (progress as { percent?: unknown } | undefined)?.percent
       this.publish({ state: 'downloading', percent: typeof percent === 'number' ? Math.max(0, Math.min(100, percent)) : 0 })
@@ -147,10 +223,7 @@ export class UpdateController {
       const version = (info as { version?: unknown } | undefined)?.version
       this.publish({ state: 'downloaded', version: typeof version === 'string' ? version : '' })
     })
-    engine.on('error', (error) => {
-      this.options.log('Updater error', error)
-      this.publish({ state: 'error', message: message(error) })
-    })
+    engine.on('error', (error) => this.fail('Updater error', error))
     this.engine = engine
     return engine
   }

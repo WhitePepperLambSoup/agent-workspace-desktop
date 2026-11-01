@@ -54,7 +54,7 @@ export function buildingFloors(
   })
 }
 
-/** The app's colour mode, accent and motion preference, as the shell sets them. */
+/** The app's colour mode, accent, motion preference and graphics setting, as the shell sets them. */
 export function useShellLook(): StudioOptions {
   const read = useCallback((): StudioOptions => {
     const shell = document.querySelector<HTMLElement>('[data-color-mode]')
@@ -64,17 +64,18 @@ export function useShellLook(): StudioOptions {
       dark: shell?.getAttribute('data-color-mode') !== 'light',
       reducedMotion: systemReduced || shell?.getAttribute('data-reduced-motion') === 'true',
       accent: /^#[0-9a-f]{6}$/i.test(accent) ? accent : '#4b8fe6',
+      quality: shell?.getAttribute('data-graphics') === 'high' ? 'high' : 'standard',
     }
   }, [])
   const [look, setLook] = useState(read)
   useEffect(() => {
     const update = (): void => {
       const next = read()
-      setLook((current) => (current.dark === next.dark && current.reducedMotion === next.reducedMotion && current.accent === next.accent ? current : next))
+      setLook((current) => (current.dark === next.dark && current.reducedMotion === next.reducedMotion && current.accent === next.accent && current.quality === next.quality ? current : next))
     }
     const shell = document.querySelector('[data-color-mode]')
     const observer = shell ? new MutationObserver(update) : null
-    observer?.observe(shell!, { attributes: true, attributeFilter: ['data-color-mode', 'data-reduced-motion', 'data-palette'] })
+    observer?.observe(shell!, { attributes: true, attributeFilter: ['data-color-mode', 'data-reduced-motion', 'data-palette', 'data-graphics'] })
     // Windows' animation setting can change while the window is open.
     const motion = typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-reduced-motion: reduce)') : null
     motion?.addEventListener('change', update)

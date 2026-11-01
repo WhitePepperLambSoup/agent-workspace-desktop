@@ -20,13 +20,18 @@ import {
   TABLE_PLACES,
   deskCenter,
 } from './layout'
+import { createAquariumKit, furnishAquarium, placeAquarium, type Aquarium, type AquariumKit } from './aquarium'
+import { fineChair, fineDesk, fineDeskLamp, fineKeyboard, fineMonitor, fineMug, finePlant, paintFineWood, tone, wainscot } from './fine'
 import {
   Batch,
   boxShape,
+  capsuleShape,
   coneShape,
   cylinderShape,
   dodecaShape,
+  latheShape,
   meshesOf,
+  shapeDetail,
   sphereShape,
   torusShape,
   type Finishes,
@@ -58,6 +63,8 @@ export interface Room {
   sandbox: { door: THREE.Group; strip: THREE.MeshBasicMaterial }
   /** The room's door, on its hinge: turned about y to open. */
   entrance: THREE.Group
+  /** The fish tank's fish. */
+  aquarium: Aquarium
   dispose(): void
 }
 
@@ -78,6 +85,7 @@ export interface RoomKit {
   readonly sandbox: { door: ReturnType<Batch['build']>; strip: THREE.BufferGeometry }
   /** The room's door leaf, from its hinge along +z. */
   readonly entrance: ReturnType<Batch['build']>
+  readonly aquarium: AquariumKit
   dispose(): void
 }
 
@@ -85,23 +93,28 @@ const WALL = 0.18
 const SCREEN = boxShape(0.58, 0.34, 0.008)
 const RING = torusShape(0.42, 0.025, Math.PI * 2, 8, 40)
 
-/** Plank lines on the floor, drawn once. */
+/** Plank lines on the floor, drawn once (twice as many pixels in high detail). */
 function floorTexture(dark: boolean): THREE.CanvasTexture {
+  const scale = shapeDetail() === 'high' ? 2 : 1
   const canvas = document.createElement('canvas')
-  canvas.width = 512
-  canvas.height = 512
+  canvas.width = 512 * scale
+  canvas.height = 512 * scale
   const context = canvas.getContext('2d')!
-  context.fillStyle = dark ? '#76604b' : '#c9a37c'
-  context.fillRect(0, 0, 512, 512)
-  for (let row = 0; row < 8; row += 1) {
-    const offset = (row % 2) * 128
-    for (let column = -1; column < 3; column += 1) {
-      const shade = ((row * 7 + column * 3) % 5) / 5
-      context.fillStyle = dark ? `rgba(0,0,0,${0.08 + shade * 0.08})` : `rgba(90,55,25,${0.05 + shade * 0.07})`
-      context.fillRect(column * 256 + offset + 2, row * 64 + 2, 252, 60)
-      // A faint grain line along each plank.
-      context.fillStyle = dark ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.12)'
-      context.fillRect(column * 256 + offset + 10, row * 64 + 20 + (shade * 20), 236, 2)
+  context.scale(scale, scale)
+  if (scale > 1) paintFineWood(context, dark)
+  else {
+    context.fillStyle = dark ? '#76604b' : '#c9a37c'
+    context.fillRect(0, 0, 512, 512)
+    for (let row = 0; row < 8; row += 1) {
+      const offset = (row % 2) * 128
+      for (let column = -1; column < 3; column += 1) {
+        const shade = ((row * 7 + column * 3) % 5) / 5
+        context.fillStyle = dark ? `rgba(0,0,0,${0.08 + shade * 0.08})` : `rgba(90,55,25,${0.05 + shade * 0.07})`
+        context.fillRect(column * 256 + offset + 2, row * 64 + 2, 252, 60)
+        // A faint grain line along each plank.
+        context.fillStyle = dark ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.12)'
+        context.fillRect(column * 256 + offset + 10, row * 64 + 20 + (shade * 20), 236, 2)
+      }
     }
   }
   const texture = new THREE.CanvasTexture(canvas)
@@ -109,7 +122,7 @@ function floorTexture(dark: boolean): THREE.CanvasTexture {
   texture.wrapT = THREE.RepeatWrapping
   texture.repeat.set(3, 2.2)
   texture.colorSpace = THREE.SRGBColorSpace
-  texture.anisotropy = 4
+  texture.anisotropy = scale > 1 ? 16 : 4
   return texture
 }
 
@@ -133,6 +146,8 @@ function palette(dark: boolean) {
 function furnish(theme: RoomTheme): Batch {
   const batch = new Batch()
   const c = palette(theme.dark)
+  // The high graphics setting's furniture (fine.ts) where it has a piece for it.
+  const fine = shapeDetail() === 'high'
   const width = ROOM.x1 - ROOM.x0
   const depth = ROOM.z1 - ROOM.z0
 
@@ -148,6 +163,10 @@ function furnish(theme: RoomTheme): Batch {
   for (const [y, h] of [[0.06, 0.12], [lowWall, 0.04], [ROOM.height - 0.02, 0.05]] as const) {
     batch.add(boxShape(width, h, 0.04), c.trim, { y, z: ROOM.z0 + 0.02 }, 'satin', false)
     batch.add(boxShape(0.04, h, depth), c.trim, { x: ROOM.x0 + 0.02, y }, 'satin', false)
+  }
+  if (fine) {
+    wainscot(batch, c.trim, 'x', ROOM.z0 + 0.008, ROOM.x0 + 0.1, ROOM.x1 - 0.1, lowWall)
+    wainscot(batch, c.trim, 'z', ROOM.x0 + 0.008, ROOM.z0 + 0.1, ROOM.z1 - 0.1, lowWall)
   }
 
   // A wide window on the back wall: daylight or a night sky.
@@ -186,6 +205,22 @@ function furnish(theme: RoomTheme): Batch {
   for (let index = 0; index < DESK_X_COUNT; index += 1) {
     const { x, z } = deskCenter(index)
     const deskWidth = DESK_SIZE.width + (index === 0 ? 0.2 : 0)
+    if (fine) {
+      fineDesk(batch, c, { x, z, width: deskWidth, depth: DESK_SIZE.depth })
+      fineMonitor(batch, { x, y: 1.0, z: z + 0.2 })
+      fineKeyboard(batch, { x, z: z - 0.12 })
+      fineChair(batch, c, { x, z: SEAT_Z })
+      const item = index % 3
+      if (index === 0) fineDeskLamp(batch, { x: x - 0.55, z: z + 0.12, ry: 0.5 }, c.lampShade, theme.dark)
+      else if (item === 0) fineMug(batch, { x: x - 0.38, z: z - 0.05, ry: index })
+      else if (item === 1) finePlant(batch, c, { x: x - 0.4, y: 0.667, z: z + 0.05, scale: 0.3, seed: index })
+      else {
+        batch.add(boxShape(0.22, 0.016, 0.28, 0.004), ['#3d6fa5', '#c06c84', '#e0a13a'][index % 3]!, { x: x - 0.36, y: 0.676, z: z - 0.05, ry: 0.2 }, 'matte', false)
+        batch.add(boxShape(0.205, 0.012, 0.27), '#f3efe7', { x: x - 0.355, y: 0.685, z: z - 0.05, ry: 0.2 }, 'matte', false)
+        batch.add(capsuleShape(0.006, 0.14, 8), '#1d2027', { x: x - 0.3, y: 0.697, z: z - 0.06, rz: Math.PI / 2, ry: 0.5 }, 'satin', false)
+      }
+      continue
+    }
     batch.add(boxShape(deskWidth, 0.045, DESK_SIZE.depth, 0.015), c.deskTop, { x, y: 0.645, z }, 'satin')
     for (const side of [-1, 1]) batch.add(boxShape(0.04, 0.62, DESK_SIZE.depth - 0.06, 0.01), c.deskFrame, { x: x + side * (deskWidth / 2 - 0.05), y: 0.31, z }, 'metal')
     batch.add(boxShape(deskWidth - 0.14, 0.28, 0.02), c.deskFrame, { x, y: 0.46, z: z + DESK_SIZE.depth / 2 - 0.06 }, 'metal')
@@ -247,13 +282,28 @@ function furnish(theme: RoomTheme): Batch {
       const thickness = 0.06 + ((book * 37) % 5) * 0.012
       const height = 0.26 + ((book * 13) % 4) * 0.035
       const lean = book % 9 === 4 ? 0.22 : 0
-      batch.add(boxShape(0.22, height, thickness, 0.006), bookColors[book % bookColors.length]!, { x: SHELF.x0 + 0.17, y: y + 0.02 + height / 2, z: cursor + thickness / 2 + lean * 0.3, rx: lean }, 'matte', false)
+      const colour = bookColors[book % bookColors.length]!
+      if (fine) {
+        // Two boards, the pages between them, the spine facing the room with two bands on it.
+        batch.within({ x: SHELF.x0 + 0.17, y: y + 0.02 + height / 2, z: cursor + thickness / 2 + lean * 0.3, rx: lean }, () => {
+          for (const side of [-1, 1]) batch.add(boxShape(0.22, height, 0.006, 0.002), colour, { z: side * (thickness / 2 - 0.003) }, 'matte', false)
+          batch.add(boxShape(0.21, height - 0.012, thickness - 0.012), '#efe8d8', { x: -0.004 }, 'matte', false)
+          batch.add(boxShape(0.008, height, thickness, 0.003), colour, { x: 0.107 }, 'matte', false)
+          for (const band of [-1, 1]) batch.add(boxShape(0.002, 0.012, thickness - 0.004), tone(colour, book % 2 ? 0.22 : -0.16), { x: 0.112, y: band * (height / 2 - 0.035) }, 'satin', false)
+        })
+      } else {
+        batch.add(boxShape(0.22, height, thickness, 0.006), colour, { x: SHELF.x0 + 0.17, y: y + 0.02 + height / 2, z: cursor + thickness / 2 + lean * 0.3, rx: lean }, 'matte', false)
+      }
       cursor += thickness + 0.01 + lean * 0.4
       book += 1
     }
   }
-  batch.add(cylinderShape(0.06, 0.08, 0.2, 14), '#e8e2d8', { x: shelfX, y: shelfHeight + 0.12, z: SHELF.z0 + 0.35 }, 'satin', false)
-  batch.add(dodecaShape(0.09), c.leaf, { x: shelfX, y: shelfHeight + 0.27, z: SHELF.z0 + 0.35 }, 'matte', false)
+  if (fine) {
+    finePlant(batch, { ...c, pot: '#e8e2d8' }, { x: shelfX, y: shelfHeight + 0.02, z: SHELF.z0 + 0.35, scale: 0.42, seed: 7 })
+  } else {
+    batch.add(cylinderShape(0.06, 0.08, 0.2, 14), '#e8e2d8', { x: shelfX, y: shelfHeight + 0.12, z: SHELF.z0 + 0.35 }, 'satin', false)
+    batch.add(dodecaShape(0.09), c.leaf, { x: shelfX, y: shelfHeight + 0.27, z: SHELF.z0 + 0.35 }, 'matte', false)
+  }
 
   // Whiteboard on the left wall, where the lead hands out the work.
   const boardZ = (BOARD.z0 + BOARD.z1) / 2
@@ -268,11 +318,29 @@ function furnish(theme: RoomTheme): Batch {
   // Meeting table on a round rug, with stools.
   batch.add(cylinderShape(1.32, 1.32, 0.015, 48), c.rug, { x: TABLE.x, y: 0.008, z: TABLE.z }, 'matte', false)
   batch.add(torusShape(1.25, 0.02, Math.PI * 2, 4, 48), theme.dark ? '#4a4057' : '#c9b8d3', { x: TABLE.x, y: 0.016, z: TABLE.z, rx: Math.PI / 2 }, 'matte', false)
-  batch.add(cylinderShape(TABLE.radius, TABLE.radius, 0.05, 40), c.deskTop, { x: TABLE.x, y: 0.61, z: TABLE.z }, 'satin')
-  batch.add(cylinderShape(TABLE.radius - 0.02, TABLE.radius - 0.08, 0.04, 40), c.deskFrame, { x: TABLE.x, y: 0.57, z: TABLE.z }, 'metal', false)
-  batch.add(cylinderShape(0.06, 0.06, 0.52, 14), '#5d6470', { x: TABLE.x, y: 0.31, z: TABLE.z }, 'metal')
-  batch.add(cylinderShape(0.32, 0.36, 0.04, 28), '#3a3f4b', { x: TABLE.x, y: 0.03, z: TABLE.z }, 'metal')
-  for (const place of TABLE_PLACES) {
+  if (fine) {
+    // A turned top with a rounded edge on a trumpet pedestal; stools with padded seats and a foot ring.
+    const r = TABLE.radius
+    batch.add(latheShape(`table-top:${r}`, [[0, 0], [r - 0.03, 0], [r - 0.004, 0.01], [r + 0.004, 0.025], [r - 0.004, 0.04], [r - 0.03, 0.05], [0, 0.05]], 72), c.deskTop, { x: TABLE.x, y: 0.585, z: TABLE.z }, 'satin')
+    batch.add(cylinderShape(r - 0.1, r - 0.14, 0.03, 48), c.deskFrame, { x: TABLE.x, y: 0.57, z: TABLE.z }, 'metal', false)
+    batch.add(latheShape('table-foot', [[0, 0], [0.36, 0], [0.36, 0.016], [0.3, 0.032], [0.1, 0.07], [0.056, 0.15], [0.05, 0.54], [0.1, 0.57], [0, 0.57]], 48), '#4a505c', { x: TABLE.x, z: TABLE.z }, 'metal')
+    for (const place of TABLE_PLACES) {
+      batch.within({ x: place.x, z: place.z }, () => {
+        batch.add(cylinderShape(0.19, 0.19, 0.046, 36), c.seat, { y: 0.3 }, 'matte')
+        batch.add(torusShape(0.19, 0.023, Math.PI * 2, 12, 48), c.seat, { y: 0.3, rx: Math.PI / 2 }, 'matte', false)
+        batch.add(cylinderShape(0.15, 0.13, 0.02, 28), '#2a2d35', { y: 0.268 }, 'satin', false)
+        batch.add(cylinderShape(0.022, 0.022, 0.25, 14), '#c3c9d2', { y: 0.135 }, 'metal', false)
+        batch.add(torusShape(0.12, 0.008, Math.PI * 2, 8, 36), '#c3c9d2', { y: 0.11, rx: Math.PI / 2 }, 'metal', false)
+        batch.add(latheShape('stool-foot', [[0, 0], [0.17, 0], [0.17, 0.008], [0.12, 0.02], [0.03, 0.03], [0, 0.03]], 36), '#3a3f4b', {}, 'metal', false)
+      })
+    }
+  } else {
+    batch.add(cylinderShape(TABLE.radius, TABLE.radius, 0.05, 40), c.deskTop, { x: TABLE.x, y: 0.61, z: TABLE.z }, 'satin')
+    batch.add(cylinderShape(TABLE.radius - 0.02, TABLE.radius - 0.08, 0.04, 40), c.deskFrame, { x: TABLE.x, y: 0.57, z: TABLE.z }, 'metal', false)
+    batch.add(cylinderShape(0.06, 0.06, 0.52, 14), '#5d6470', { x: TABLE.x, y: 0.31, z: TABLE.z }, 'metal')
+    batch.add(cylinderShape(0.32, 0.36, 0.04, 28), '#3a3f4b', { x: TABLE.x, y: 0.03, z: TABLE.z }, 'metal')
+  }
+  for (const place of fine ? [] : TABLE_PLACES) {
     batch.add(cylinderShape(0.2, 0.2, 0.07, 20), c.seat, { x: place.x, y: 0.29, z: place.z }, 'matte')
     batch.add(cylinderShape(0.025, 0.025, 0.24, 8), '#5d6470', { x: place.x, y: 0.14, z: place.z }, 'metal', false)
     batch.add(cylinderShape(0.15, 0.17, 0.025, 18), '#3a3f4b', { x: place.x, y: 0.013, z: place.z }, 'metal', false)
@@ -300,17 +368,43 @@ function furnish(theme: RoomTheme): Batch {
   const sofaZ = (SOFA.z0 + SOFA.z1) / 2
   const sofaLength = SOFA.z1 - SOFA.z0
   batch.add(boxShape(1.9, 0.012, 2.5, 0.004), c.rugLounge, { x: -4.6, y: 0.007, z: sofaZ }, 'matte', false)
-  batch.add(boxShape(SOFA.x1 - SOFA.x0, 0.2, sofaLength, 0.05), c.sofa, { x: sofaX, y: 0.14, z: sofaZ })
-  batch.add(boxShape(0.2, 0.55, sofaLength, 0.06), c.sofa, { x: SOFA.x0 + 0.1, y: 0.42, z: sofaZ })
-  for (const z of [SOFA.z0 + 0.08, SOFA.z1 - 0.08]) batch.add(boxShape(SOFA.x1 - SOFA.x0, 0.36, 0.16, 0.06), c.sofa, { x: sofaX, y: 0.3, z })
-  for (const z of [sofaZ - sofaLength / 4 + 0.04, sofaZ + sofaLength / 4 - 0.04]) {
-    batch.add(boxShape(SOFA.x1 - SOFA.x0 - 0.24, 0.09, sofaLength / 2 - 0.14, 0.04), c.cushion, { x: sofaX + 0.1, y: 0.29, z })
-    batch.add(boxShape(0.14, 0.34, sofaLength / 2 - 0.16, 0.05), c.cushion, { x: SOFA.x0 + 0.26, y: 0.52, z, rz: -0.18 })
+  if (fine) {
+    // Tapered wooden feet, a base, plump seat cushions with piping, back cushions leaning on the
+    // back, rolled arms, a pillow; a floor lamp with a drum shade.
+    const sofaDepth = SOFA.x1 - SOFA.x0
+    for (const fx of [SOFA.x0 + 0.08, SOFA.x1 - 0.08]) {
+      for (const fz of [SOFA.z0 + 0.1, SOFA.z1 - 0.1]) batch.add(cylinderShape(0.022, 0.015, 0.09, 12), c.wood, { x: fx, y: 0.045, z: fz }, 'satin', false)
+    }
+    batch.add(boxShape(sofaDepth, 0.14, sofaLength, 0.04), tone(c.sofa, -0.05), { x: sofaX, y: 0.16, z: sofaZ })
+    batch.add(boxShape(0.18, 0.52, sofaLength - 0.1, 0.07), c.sofa, { x: SOFA.x0 + 0.09, y: 0.44, z: sofaZ })
+    for (const z of [SOFA.z0 + 0.08, SOFA.z1 - 0.08]) {
+      batch.add(boxShape(sofaDepth, 0.26, 0.16, 0.06), c.sofa, { x: sofaX, y: 0.3, z })
+      batch.add(capsuleShape(0.085, sofaDepth - 0.17, 20), c.sofa, { x: sofaX, y: 0.43, z, rz: Math.PI / 2 })
+    }
+    for (const z of [sofaZ - sofaLength / 4 + 0.04, sofaZ + sofaLength / 4 - 0.04]) {
+      batch.add(boxShape(sofaDepth - 0.22, 0.12, sofaLength / 2 - 0.15, 0.055), c.cushion, { x: sofaX + 0.09, y: 0.28, z })
+      batch.add(capsuleShape(0.007, sofaLength / 2 - 0.24, 8), tone(c.cushion, -0.1), { x: SOFA.x1 - 0.025, y: 0.285, z, rx: Math.PI / 2 }, 'matte', false)
+      batch.add(boxShape(0.16, 0.36, sofaLength / 2 - 0.17, 0.075), c.cushion, { x: SOFA.x0 + 0.26, y: 0.52, z, rz: -0.18 })
+    }
+    batch.add(sphereShape(0.13, 20, 14), theme.accent, { x: SOFA.x0 + 0.36, y: 0.45, z: SOFA.z1 - 0.32, rz: -0.25, ry: 0.3, sx: 0.42, sz: 0.95 }, 'matte')
+    batch.add(cylinderShape(0.15, 0.16, 0.022, 32), '#2a2d35', { x: -5.62, y: 0.011, z: 4.28 }, 'metal', false)
+    batch.add(cylinderShape(0.012, 0.012, 1.42, 12), '#9aa1ab', { x: -5.62, y: 0.74, z: 4.28 }, 'metal')
+    batch.add(latheShape('floor-lamp-shade', [[0.125, 0], [0.135, 0.002], [0.205, 0.27], [0.195, 0.272], [0.118, 0.004]], 44), c.lampShade, { x: -5.62, y: 1.45, z: 4.28 }, theme.dark ? 'glow' : 'satin', false)
+    if (theme.dark) batch.add(sphereShape(0.05, 16, 12), '#fff4d6', { x: -5.62, y: 1.55, z: 4.28 }, 'glow', false)
   }
-  batch.add(boxShape(0.1, 0.22, 0.22, 0.05), theme.accent, { x: SOFA.x0 + 0.36, y: 0.45, z: SOFA.z1 - 0.32, rz: -0.25, ry: 0.3 }, 'matte')
-  batch.add(cylinderShape(0.14, 0.16, 0.025, 18), '#2a2d35', { x: -5.62, y: 0.013, z: 4.28 }, 'metal', false)
-  batch.add(cylinderShape(0.015, 0.015, 1.5, 8), '#5d6470', { x: -5.62, y: 0.76, z: 4.28 }, 'metal')
-  batch.add(cylinderShape(0.14, 0.2, 0.26, 20, ), c.lampShade, { x: -5.62, y: 1.58, z: 4.28 }, theme.dark ? 'glow' : 'satin', false)
+  else {
+    batch.add(boxShape(SOFA.x1 - SOFA.x0, 0.2, sofaLength, 0.05), c.sofa, { x: sofaX, y: 0.14, z: sofaZ })
+    batch.add(boxShape(0.2, 0.55, sofaLength, 0.06), c.sofa, { x: SOFA.x0 + 0.1, y: 0.42, z: sofaZ })
+    for (const z of [SOFA.z0 + 0.08, SOFA.z1 - 0.08]) batch.add(boxShape(SOFA.x1 - SOFA.x0, 0.36, 0.16, 0.06), c.sofa, { x: sofaX, y: 0.3, z })
+    for (const z of [sofaZ - sofaLength / 4 + 0.04, sofaZ + sofaLength / 4 - 0.04]) {
+      batch.add(boxShape(SOFA.x1 - SOFA.x0 - 0.24, 0.09, sofaLength / 2 - 0.14, 0.04), c.cushion, { x: sofaX + 0.1, y: 0.29, z })
+      batch.add(boxShape(0.14, 0.34, sofaLength / 2 - 0.16, 0.05), c.cushion, { x: SOFA.x0 + 0.26, y: 0.52, z, rz: -0.18 })
+    }
+    batch.add(boxShape(0.1, 0.22, 0.22, 0.05), theme.accent, { x: SOFA.x0 + 0.36, y: 0.45, z: SOFA.z1 - 0.32, rz: -0.25, ry: 0.3 }, 'matte')
+    batch.add(cylinderShape(0.14, 0.16, 0.025, 18), '#2a2d35', { x: -5.62, y: 0.013, z: 4.28 }, 'metal', false)
+    batch.add(cylinderShape(0.015, 0.015, 1.5, 8), '#5d6470', { x: -5.62, y: 0.76, z: 4.28 }, 'metal')
+    batch.add(cylinderShape(0.14, 0.2, 0.26, 20, ), c.lampShade, { x: -5.62, y: 1.58, z: 4.28 }, theme.dark ? 'glow' : 'satin', false)
+  }
   const counterX = (COUNTER.x0 + COUNTER.x1) / 2
   const counterZ = (COUNTER.z0 + COUNTER.z1) / 2
   const counterWidth = COUNTER.x1 - COUNTER.x0
@@ -363,8 +457,14 @@ function furnish(theme: RoomTheme): Batch {
   batch.add(boxShape(0.3, 0.012, 0.16, 0.004), '#5d6470', { x: printerX, y: 0.6, z: PRINTER.z1 + 0.04, rx: 0.12 }, 'satin', false)
   batch.add(boxShape(0.03, 0.03, 0.01), '#38d39f', { x: printerX + 0.22, y: 0.74, z: PRINTER.z1 - 0.03 }, 'glow', false)
 
+  furnishAquarium(batch, theme.dark)
+
   // Plants: a pot with soil and a full crown; two are tall plants on a stem.
   for (const [index, plant] of PLANTS.entries()) {
+    if (fine) {
+      finePlant(batch, c, { x: plant.x, z: plant.z, tall: index % 2 === 1, seed: index + 1 })
+      continue
+    }
     batch.add(cylinderShape(0.21, 0.15, 0.38, 18), c.pot, { x: plant.x, y: 0.19, z: plant.z }, 'satin')
     batch.add(torusShape(0.205, 0.02, Math.PI * 2, 6, 18), c.pot, { x: plant.x, y: 0.38, z: plant.z, rx: Math.PI / 2 }, 'satin', false)
     batch.add(cylinderShape(0.19, 0.19, 0.02, 16), c.soil, { x: plant.x, y: 0.36, z: plant.z }, 'matte', false)
@@ -418,6 +518,7 @@ export function createRoomKit(theme: RoomTheme, finishes: Finishes): RoomKit {
   doorLeaf.add(boxShape(0.06, 0.6, entranceWidth - 0.3, 0.01), theme.dark ? '#4e3b2c' : '#a5784f', { y: 1.5, z: entranceWidth / 2 }, 'satin', false)
   doorLeaf.add(boxShape(0.1, 0.03, 0.12, 0.01), '#aeb5bf', { y: 1.0, z: entranceWidth - 0.12 }, 'metal', false)
   const entrance = doorLeaf.build()
+  const aquarium = createAquariumKit()
   return {
     theme,
     finishes,
@@ -428,7 +529,9 @@ export function createRoomKit(theme: RoomTheme, finishes: Finishes): RoomKit {
     printout,
     sandbox: { door, strip: stripGeometry },
     entrance,
+    aquarium,
     dispose() {
+      aquarium.dispose()
       for (const part of furniture) part.geometry.dispose()
       for (const part of entrance) part.geometry.dispose()
       for (const part of door) part.geometry.dispose()
@@ -520,6 +623,8 @@ export function buildRoom(kit: RoomKit): Room {
   entrance.position.set(ENTRANCE.x + 0.04, 0, ENTRANCE.z0 + 0.06)
   group.add(entrance)
 
+  const aquarium = placeAquarium(kit.aquarium, finishes, group, theme.dark)
+
   // Warm lamps at night: over the desks, by the sofa and over the table.
   const lamps: THREE.PointLight[] = []
   if (theme.dark) {
@@ -543,8 +648,10 @@ export function buildRoom(kit: RoomKit): Room {
     printout,
     sandbox: { door, strip },
     entrance,
+    aquarium,
     dispose() {
       group.removeFromParent()
+      aquarium.dispose()
       for (const note of notes.children) ((note as THREE.Mesh).material as THREE.Material).dispose()
       for (const material of owned) material.dispose()
       for (const lamp of lamps) lamp.dispose()

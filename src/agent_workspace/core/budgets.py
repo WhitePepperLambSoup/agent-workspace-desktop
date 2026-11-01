@@ -42,6 +42,19 @@ class TaskLimits:
         return budget
 
 
+# For a computer left working on a task for hours: the steps and the time open up, while what the
+# task may cost stays as it is (the default budget, or the user's own limits).
+LONG_TURN_LIMITS: dict[str, int | float] = {
+    "max_model_calls": 5000,
+    "max_provider_attempts": 7500,
+    "max_tool_calls": 5000,
+    "max_turn_seconds": 24 * 3600.0,
+    "max_input_tokens": 4_000_000_000,
+    "max_output_tokens": 20_000_000,
+    "max_reasoning_steps": 5000,
+}
+
+
 @dataclass(slots=True)
 class TaskBudget:
     max_model_calls: int = 256

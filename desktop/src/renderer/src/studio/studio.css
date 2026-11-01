@@ -49,6 +49,9 @@
   left: 0;
   will-change: transform;
 }
+/* People's tags and the signs take no pointer (the overlay's pointer-events: none): a drag or the wheel
+   that starts on one still turns or zooms the view, and a click on one is matched by the scene (labelAt
+   in scene.ts), which clicks it. */
 .studio-tag {
   display: inline-flex;
   align-items: center;
@@ -63,8 +66,6 @@
   background: color-mix(in srgb, var(--canvas) 78%, transparent);
   box-shadow: inset 0 0 0 1px var(--pane-border, rgba(255, 255, 255, .2)), 0 4px 12px rgba(0, 0, 0, .18);
   backdrop-filter: blur(6px);
-  pointer-events: auto;
-  cursor: pointer;
 }
 .studio-tag-state {
   color: var(--text-muted);
@@ -130,12 +131,9 @@
   background: color-mix(in srgb, var(--canvas) 80%, transparent);
   box-shadow: inset 0 0 0 1px var(--pane-border, rgba(255, 255, 255, .2)), 0 6px 16px rgba(0, 0, 0, .18);
   backdrop-filter: blur(6px);
-  pointer-events: auto;
-  cursor: pointer;
   will-change: transform;
   transition: box-shadow .15s ease, background-color .15s ease;
 }
-.studio-floor-sign:hover,
 .studio-floor-sign[data-hover="true"] {
   background: color-mix(in srgb, var(--canvas) 92%, transparent);
   box-shadow: inset 0 0 0 1.5px var(--accent), 0 8px 20px rgba(0, 0, 0, .22);
@@ -226,6 +224,29 @@
 @media (prefers-reduced-motion: reduce) {
   .studio-tag, .studio-bubble, .studio-floor-sign { will-change: auto; transition: none; }
 }
+/* On the studio page a scene comes in once its first frame is drawn, and fades as the camera
+   dives into a building; its tags and signs show once the camera has arrived. */
+:is(.studio-route .studio-stage, .place-stage) > :is(.studio-canvas, .studio-overlay) {
+  opacity: 0;
+  transition: opacity .32s ease-out;
+}
+:is(.studio-route .studio-stage, .place-stage)[data-drawn="true"] > .studio-canvas,
+:is(.studio-route .studio-stage, .place-stage)[data-drawn="true"] > .studio-overlay:not([data-moving="true"]) {
+  opacity: 1;
+}
+:is(.studio-route .studio-stage, .place-stage)[data-leaving="true"] > :is(.studio-canvas, .studio-overlay) {
+  opacity: 0;
+  transition: opacity .26s ease-in .34s;
+}
+/* Left with a button: no dive, the scene fades at once. */
+:is(.studio-route .studio-stage, .place-stage)[data-leaving="now"] > :is(.studio-canvas, .studio-overlay) {
+  opacity: 0;
+  transition: opacity .18s ease-in;
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.studio-route .studio-stage, .place-stage) > :is(.studio-canvas, .studio-overlay) { transition: none; }
+}
+[data-reduced-motion="true"] :is(.studio-route .studio-stage, .place-stage) > :is(.studio-canvas, .studio-overlay) { transition: none; }
 
 /* Behind the window's panes: the conversation's studio, frosted until it is shown in full. */
 .studio-backdrop {
@@ -290,7 +311,6 @@
   grid-template-columns: minmax(0, 1fr);
   max-width: 230px;
 }
-.place-sign[data-pick="false"] { cursor: default; }
 .place-sign[data-tone="alert"] { box-shadow: inset 0 0 0 1.5px #e0a13a, 0 6px 16px rgba(0, 0, 0, .18); }
 .place-sign[data-tone="alert"] .studio-floor-summary { color: #9a5b00; }
 [data-color-mode="dark"] .place-sign[data-tone="alert"] .studio-floor-summary { color: #f2c46d; }
@@ -304,6 +324,174 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A turn replayed: the controls, what is going on now, and every step. */
+.replay-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 210px;
+  padding: 8px 14px 10px;
+  border-top: 1px solid var(--pane-divider);
+  font-size: 12px;
+}
+.replay-controls { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
+.replay-now { flex: 0 0 auto; }
+.replay-scrubber { flex: 1 1 auto; min-width: 80px; accent-color: var(--accent); }
+.replay-clock { color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.replay-controls select { max-width: 180px; }
+.replay-now,
+.replay-note { margin: 0; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.replay-now strong { margin-right: 4px; color: var(--text); font-weight: 600; }
+.replay-steps {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.replay-steps li { display: flex; align-items: center; gap: 4px; border-radius: 8px; }
+.replay-steps li[data-current="true"] { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.replay-step {
+  display: flex;
+  flex: 1 1 auto;
+  gap: 8px;
+  min-width: 0;
+  padding: 3px 6px;
+  color: var(--text);
+  text-align: left;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.replay-step > span:last-child { min-width: 0; overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; }
+.replay-step-time { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.replay-steps li[data-failed="true"] .replay-step > span:last-child { color: var(--danger); }
+/* The control room: the room, and beside it the conversations at work and the one picked. */
+.control-layout {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.control-layout .studio-stage { flex: 1 1 auto; min-width: 0; }
+.control-panel {
+  display: flex;
+  flex: 0 0 270px;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  padding: 12px 14px;
+  overflow-y: auto;
+  border-left: 1px solid var(--pane-divider);
+  font-size: 12px;
+}
+.control-list,
+.control-people {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.control-list button,
+.control-people button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: center;
+  width: 100%;
+  padding: 7px 10px;
+  color: var(--text);
+  text-align: left;
+  border: 0;
+  border-radius: 10px;
+  background: var(--control-fill);
+  box-shadow: inset 0 0 0 1px var(--control-border);
+  cursor: pointer;
+}
+.control-list button:hover:not(:disabled),
+.control-people button:hover:not(:disabled) { background: var(--control-fill-hover); }
+.control-people button:disabled { cursor: default; }
+.control-list button > :not(.studio-floor-dot),
+.control-people button > :not(.studio-swatch) { grid-column: 2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.control-list button > .studio-floor-dot,
+.control-people button > .studio-swatch { grid-row: 1 / span 3; }
+.control-list button span,
+.control-list button small,
+.control-people button span { color: var(--text-muted); }
+.control-list li[data-state="approval"] button,
+.control-list li[data-state="failed"] button,
+.control-list li[data-state="quiet"] button { box-shadow: inset 0 0 0 1.5px #e0a13a; }
+.control-empty,
+.control-note { margin: 0; color: var(--text-muted); }
+.control-extras { display: flex; flex-direction: column; gap: 6px; }
+.control-extras button {
+  display: flex;
+  gap: 6px;
+  padding: 6px 10px;
+  color: var(--text);
+  text-align: left;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--control-border);
+  cursor: pointer;
+}
+.control-extras em { color: #b4561f; font-style: normal; }
+[data-color-mode="dark"] .control-extras em { color: #f2a36d; }
+.control-summary h2 { margin: 0 0 2px; font-size: 14px; }
+.control-summary p { margin: 0; color: var(--text-muted); }
+.control-detail-header { display: flex; gap: 8px; align-items: flex-start; }
+.control-detail-header h2 { margin: 2px 0 2px; font-size: 14px; }
+.control-detail-header p { margin: 0; color: var(--text-muted); }
+.control-detail-header p[data-state="approval"],
+.control-detail-header p[data-state="failed"],
+.control-detail-header p[data-state="quiet"] { color: #9a5b00; }
+[data-color-mode="dark"] .control-detail-header p:is([data-state="approval"], [data-state="failed"], [data-state="quiet"]) { color: #f2c46d; }
+.control-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.control-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 4px 10px;
+  color: var(--text);
+  border: 0;
+  border-radius: 999px;
+  background: var(--control-fill);
+  box-shadow: inset 0 0 0 1px var(--control-border);
+  cursor: pointer;
+}
+.control-panel h3 { margin: 4px 0 0; color: var(--text-muted); font-size: 11px; font-weight: 600; }
+.control-panel .approval-shelf { margin: 0; }
+.studio-backdrop-place .control-panel { background: color-mix(in srgb, var(--canvas) 72%, transparent); }
+/* What can be done in a place: a file's change, a job's output, a search. */
+.place-file { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.place-diff {
+  max-height: 260px;
+  margin: 0;
+  padding: 6px 8px;
+  overflow: auto;
+  font: 11px/1.45 var(--font-mono, ui-monospace, monospace);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--canvas) 70%, transparent);
+}
+.place-diff [data-kind="add"] { color: var(--success); }
+.place-diff [data-kind="delete"] { color: var(--danger); }
+.place-diff [data-kind="marker"] { color: var(--text-muted); }
+.place-undone { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; color: var(--text-muted); }
+.place-undone button,
+.place-panel .control-actions button { display: inline-flex; align-items: center; gap: 4px; }
+.place-search { display: flex; gap: 6px; }
+.place-search input { flex: 1 1 auto; min-width: 0; }
+.place-results li { padding: 6px 10px; border-radius: 10px; background: var(--control-fill); box-shadow: inset 0 0 0 1px var(--control-border); }
+.place-results p { margin: 4px 0 0; color: var(--text-muted); display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.place-panel input[type="search"] { min-width: 0; flex: 1; height: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: var(--control-fill); box-shadow: inset 0 0 0 1px var(--control-border); color: var(--text); font: inherit; font-size: 12px; }
+.place-panel .job-log pre { max-height: 220px; overflow: auto; font-size: 11px; }
 /* Shown in full with other teams at work: the building's floors to look at, like a lift's buttons. */
 .studio-floor-switch {
   position: absolute;

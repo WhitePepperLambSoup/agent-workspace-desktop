@@ -8,6 +8,7 @@ import { selectWorkspaceGroups, workspacePathKey, type PresentedSession, type Wo
 import { droppedFolderPath, hasDroppedFiles, splitDroppedItems } from './folder-drop'
 import { SessionActionsMenu } from './SessionActionsMenu'
 import { useSendToPhone } from '../devices/SendToPhone'
+import { sessionAttention, useClock } from '../notifications/attention'
 
 interface SessionSidebarProps {
   open: boolean
@@ -32,9 +33,18 @@ function errorKey(reason: unknown, fallback: MessageKey, known = BUSY_ERRORS): M
   return Object.hasOwn(known, code) ? known[code]! : fallback
 }
 
+/** Nothing has been said in the open conversation (its stored time has not moved since it was made). */
+export function selectedSessionUnused(state: Pick<WorkbenchState, 'selectedSession' | 'timeline' | 'runtime'>): boolean {
+  const session = state.selectedSession
+  if (!session || state.timeline.length > 0 || state.runtime.activeTurn) return false
+  return typeof session.createdAt === 'string' && session.createdAt === session.updatedAt
+}
+
 export function SessionSidebar({ open, onClose, state, client, drawer, drawerRef }: SessionSidebarProps) {
   const tx = useText()
   const { locale, t } = useOptionalI18n()
+  // Silences while a conversation works are marked by time, not by an event.
+  const now = useClock(Object.keys(state.runtime.activeSessions ?? {}).length > 0 || Boolean(state.runtime.activeTurn))
   const [query, setQuery] = useState('')
   const [error, setError] = useState<MessageKey | null>(null)
   const [creating, setCreating] = useState(false)
@@ -66,6 +76,11 @@ export function SessionSidebar({ open, onClose, state, client, drawer, drawerRef
 
   const createSession = async (path = currentPath): Promise<void> => {
     if (!client || creating) return
+    // Nothing has been said in this one yet: it is the new conversation, not one more blank row.
+    if (workspacePathKey(path) === workspacePathKey(currentPath) && selectedSessionUnused(state)) {
+      document.querySelector<HTMLElement>('.composer-shell textarea, .composer-shell [contenteditable="true"]')?.focus()
+      return
+    }
     setCreating(true)
     setError(null)
     try {
@@ -220,6 +235,12 @@ export function SessionSidebar({ open, onClose, state, client, drawer, drawerRef
     const sameWorkspace = !runtime?.workspace || !session.workspace || workspacePathKey(runtime.workspace) === workspacePathKey(session.workspace)
     const running = sameWorkspace && Boolean(runtime?.activeTurn || runtime?.turnRequested || (runtime?.queuedTurnCount ?? 0) > 0 ||
       (state.runtime.activeTurn && session.id === state.runtime.hostSessionId))
+    // A question waiting, a long silence while it works, a turn that just failed.
+    const attention = sameWorkspace ? sessionAttention(state, session.id, now) : null
+    const status = attention?.kind === 'approval' ? t('places.control.state.approval', { count: attention.count })
+      : attention?.kind === 'quiet' ? t('places.control.state.quiet', { minutes: attention.minutes })
+        : attention?.kind === 'failed' ? t('places.control.state.failed')
+          : running ? tx('Running') : selected ? tx('Current') : localizeKnownStatus(locale, session.mode)
     const title = session.title || tx('New session')
     if (renaming?.id === session.id) {
       return <form className="session-row-item session-rename" key={session.id}
@@ -237,11 +258,12 @@ export function SessionSidebar({ open, onClose, state, client, drawer, drawerRef
         className={selected ? 'session-row is-active' : 'session-row'} title={title}
         aria-current={selected ? 'page' : undefined} aria-busy={openingSession === session.id}
         disabled={!client} onClick={() => void openSession(session)}>
-        <span className="session-row-title"><span className="session-row-dot" data-mode={session.mode} data-running={running ? 'true' : 'false'} />
+        <span className="session-row-title"><span className="session-row-dot" data-mode={session.mode} data-running={running ? 'true' : 'false'}
+          data-attention={attention?.kind} />
           <span className="session-row-label">{title}</span>
           {session.pinned ? <Pin size={12} aria-label={t('workspace.pin')} /> : null}
         </span>
-        <small><span>{running ? tx('Running') : selected ? tx('Current') : localizeKnownStatus(locale, session.mode)}</span>
+        <small><span data-attention={attention?.kind}>{status}</span>
           <span className="session-row-autonomy">{session.autonomy === 'yolo' ? 'YOLO' : session.autonomy === 'full_access' ? tx('Full access') : ''}</span>
         </small>
       </button>

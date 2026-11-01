@@ -2,9 +2,10 @@ import * as THREE from 'three'
 
 import { lookFor } from '../cast'
 import type { Place } from '../layout'
-import { Batch, boxShape, cylinderShape } from '../mesh-kit'
+import { Batch, boxShape, cylinderShape, shapeDetail } from '../mesh-kit'
 import { FloorGrid } from '../paths'
 import { SITE_DISTRICTS, type BuildingKind, type SiteBuilding, type SiteModel } from './models'
+import { addFacades, fineCabin, fineCraneJib, fineCraneMast, fineFence, fineHook, fineTruck } from './fine-places'
 import { ROOM_BOX, disposeGeometry, floor, group, palette } from './kit'
 import type { CrowdActor, PlaceBuilder, PlaceLabel } from './stage'
 import type { PlaceInput } from './types'
@@ -56,36 +57,48 @@ export const buildSite: PlaceBuilder<PlaceInput<SiteModel>> = (context) => {
   const ground = floor('dirt', dark, ROOM_BOX, 3)
   root.add(ground.mesh)
 
+  const fine = shapeDetail() === 'high'
   const batch = new Batch()
   batch.add(boxShape(ROOM_BOX.x1 - ROOM_BOX.x0 + 0.1, 0.12, ROOM_BOX.z1 - ROOM_BOX.z0 + 0.1), c.skirt, { y: -0.3 }, 'matte', false)
-  // A fence of panels on posts along the back and the left, with the gate gap at the front right.
-  const fence = dark ? '#8a93a3' : '#9aa1ab'
-  for (let x = ROOM_BOX.x0; x <= ROOM_BOX.x1 + 0.01; x += 1.2) batch.add(cylinderShape(0.04, 0.04, 1.3, 8), fence, { x, y: 0.65, z: ROOM_BOX.z0 + 0.05 }, 'metal')
-  for (let z = ROOM_BOX.z0; z <= ROOM_BOX.z1 + 0.01; z += 1.2) batch.add(cylinderShape(0.04, 0.04, 1.3, 8), fence, { x: ROOM_BOX.x0 + 0.05, y: 0.65, z }, 'metal')
-  batch.add(boxShape(ROOM_BOX.x1 - ROOM_BOX.x0, 1.1, 0.02), dark ? '#3c4c5e' : '#7d97b0', { y: 0.65, z: ROOM_BOX.z0 + 0.05 }, 'glass', false)
-  batch.add(boxShape(0.02, 1.1, ROOM_BOX.z1 - ROOM_BOX.z0), dark ? '#3c4c5e' : '#7d97b0', { x: ROOM_BOX.x0 + 0.05, y: 0.65 }, 'glass', false)
-  // The site office: a cabin on blocks with a window, a door and steps.
-  const cabin = dark ? '#c9a43a' : '#e8c547'
-  batch.add(boxShape(2.1, 1.25, 1.2, 0.03), cabin, { x: OFFICE.x, y: 0.8, z: OFFICE.z }, 'satin')
-  batch.add(boxShape(2.2, 0.08, 1.3, 0.02), c.trim, { x: OFFICE.x, y: 1.46, z: OFFICE.z }, 'satin')
-  for (const dx of [-0.85, 0.85]) batch.add(boxShape(0.3, 0.18, 1.0), '#7a7a7a', { x: OFFICE.x + dx, y: 0.09, z: OFFICE.z }, 'matte')
-  batch.add(boxShape(0.7, 0.45, 0.02), c.sky, { x: OFFICE.x - 0.35, y: 0.95, z: OFFICE.z + 0.61 }, 'glow', false)
-  batch.add(boxShape(0.4, 0.95, 0.02), '#5d6470', { x: OFFICE.x + 0.6, y: 0.66, z: OFFICE.z + 0.61 }, 'satin', false)
-  batch.add(boxShape(0.5, 0.08, 0.3), '#7a7a7a', { x: OFFICE.x + 0.6, y: 0.1, z: OFFICE.z + 0.78 }, 'matte')
-  // The tower crane's mast and base; its jib turns.
-  batch.add(boxShape(0.9, 0.3, 0.9, 0.02), '#7a7a7a', { x: CRANE.x, y: 0.15, z: CRANE.z }, 'matte')
-  for (let y = 0.3; y < MAST; y += 0.45) {
-    for (const [dx, dz] of [[-0.18, -0.18], [0.18, -0.18], [-0.18, 0.18], [0.18, 0.18]] as const) batch.add(boxShape(0.04, 0.46, 0.04), '#e0a13a', { x: CRANE.x + dx, y: y + 0.22, z: CRANE.z + dz }, 'metal', false)
-    batch.add(boxShape(0.4, 0.03, 0.4), '#e0a13a', { x: CRANE.x, y, z: CRANE.z }, 'metal', false)
+  if (fine) {
+    fineFence(batch, dark, 'x', ROOM_BOX.z0 + 0.05, ROOM_BOX.x0, ROOM_BOX.x1)
+    fineFence(batch, dark, 'z', ROOM_BOX.x0 + 0.05, ROOM_BOX.z0, ROOM_BOX.z1)
+    fineCabin(batch, c, OFFICE.x, OFFICE.z, dark)
+    fineCraneMast(batch, CRANE.x, CRANE.z, MAST)
+  } else {
+    // A fence of panels on posts along the back and the left, with the gate gap at the front right.
+    const fence = dark ? '#8a93a3' : '#9aa1ab'
+    for (let x = ROOM_BOX.x0; x <= ROOM_BOX.x1 + 0.01; x += 1.2) batch.add(cylinderShape(0.04, 0.04, 1.3, 8), fence, { x, y: 0.65, z: ROOM_BOX.z0 + 0.05 }, 'metal')
+    for (let z = ROOM_BOX.z0; z <= ROOM_BOX.z1 + 0.01; z += 1.2) batch.add(cylinderShape(0.04, 0.04, 1.3, 8), fence, { x: ROOM_BOX.x0 + 0.05, y: 0.65, z }, 'metal')
+    batch.add(boxShape(ROOM_BOX.x1 - ROOM_BOX.x0, 1.1, 0.02), dark ? '#3c4c5e' : '#7d97b0', { y: 0.65, z: ROOM_BOX.z0 + 0.05 }, 'glass', false)
+    batch.add(boxShape(0.02, 1.1, ROOM_BOX.z1 - ROOM_BOX.z0), dark ? '#3c4c5e' : '#7d97b0', { x: ROOM_BOX.x0 + 0.05, y: 0.65 }, 'glass', false)
+    // The site office: a cabin on blocks with a window, a door and steps.
+    const cabin = dark ? '#c9a43a' : '#e8c547'
+    batch.add(boxShape(2.1, 1.25, 1.2, 0.03), cabin, { x: OFFICE.x, y: 0.8, z: OFFICE.z }, 'satin')
+    batch.add(boxShape(2.2, 0.08, 1.3, 0.02), c.trim, { x: OFFICE.x, y: 1.46, z: OFFICE.z }, 'satin')
+    for (const dx of [-0.85, 0.85]) batch.add(boxShape(0.3, 0.18, 1.0), '#7a7a7a', { x: OFFICE.x + dx, y: 0.09, z: OFFICE.z }, 'matte')
+    batch.add(boxShape(0.7, 0.45, 0.02), c.sky, { x: OFFICE.x - 0.35, y: 0.95, z: OFFICE.z + 0.61 }, 'glow', false)
+    batch.add(boxShape(0.4, 0.95, 0.02), '#5d6470', { x: OFFICE.x + 0.6, y: 0.66, z: OFFICE.z + 0.61 }, 'satin', false)
+    batch.add(boxShape(0.5, 0.08, 0.3), '#7a7a7a', { x: OFFICE.x + 0.6, y: 0.1, z: OFFICE.z + 0.78 }, 'matte')
+    // The tower crane's mast and base; its jib turns.
+    batch.add(boxShape(0.9, 0.3, 0.9, 0.02), '#7a7a7a', { x: CRANE.x, y: 0.15, z: CRANE.z }, 'matte')
+    for (let y = 0.3; y < MAST; y += 0.45) {
+      for (const [dx, dz] of [[-0.18, -0.18], [0.18, -0.18], [-0.18, 0.18], [0.18, 0.18]] as const) batch.add(boxShape(0.04, 0.46, 0.04), '#e0a13a', { x: CRANE.x + dx, y: y + 0.22, z: CRANE.z + dz }, 'metal', false)
+      batch.add(boxShape(0.4, 0.03, 0.4), '#e0a13a', { x: CRANE.x, y, z: CRANE.z }, 'metal', false)
+    }
   }
   root.add(group(batch, finishes))
 
   const jib = new THREE.Group()
   jib.position.set(CRANE.x, MAST, CRANE.z)
   const arm = new Batch()
-  arm.add(boxShape(7.2, 0.18, 0.22), '#e0a13a', { x: -2.8 }, 'metal')
-  arm.add(boxShape(1.4, 0.3, 0.5, 0.03), '#6b7280', { x: 1.2, y: -0.1 }, 'metal')
-  arm.add(boxShape(0.7, 0.55, 0.55, 0.03), dark ? '#c9ccd2' : '#eef0f3', { x: 0.2, y: -0.4 }, 'satin')
+  if (fine) {
+    fineCraneJib(arm, dark)
+  } else {
+    arm.add(boxShape(7.2, 0.18, 0.22), '#e0a13a', { x: -2.8 }, 'metal')
+    arm.add(boxShape(1.4, 0.3, 0.5, 0.03), '#6b7280', { x: 1.2, y: -0.1 }, 'metal')
+    arm.add(boxShape(0.7, 0.55, 0.55, 0.03), dark ? '#c9ccd2' : '#eef0f3', { x: 0.2, y: -0.4 }, 'satin')
+  }
   jib.add(group(arm, finishes))
   // The hook hangs from the trolley on a cable that pays out to the building.
   const cable = new THREE.Group()
@@ -95,7 +108,8 @@ export const buildSite: PlaceBuilder<PlaceInput<SiteModel>> = (context) => {
   jib.add(cable)
   const hook = new THREE.Group()
   const block = new Batch()
-  block.add(boxShape(0.1, 0.12, 0.1, 0.02), '#2a2d35', {}, 'metal')
+  if (fine) fineHook(block)
+  else block.add(boxShape(0.1, 0.12, 0.1, 0.02), '#2a2d35', {}, 'metal')
   hook.add(group(block, finishes))
   jib.add(hook)
   root.add(jib)
@@ -103,6 +117,7 @@ export const buildSite: PlaceBuilder<PlaceInput<SiteModel>> = (context) => {
   // Buildings: one instanced mesh, and scaffolding around the changed ones.
   const capacity = 240
   const buildingMaterial = new THREE.MeshStandardMaterial({ roughness: 0.7 })
+  if (fine) addFacades(buildingMaterial)
   const buildings = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), buildingMaterial, capacity)
   buildings.castShadow = true
   buildings.receiveShadow = true
@@ -211,6 +226,10 @@ export const buildSite: PlaceBuilder<PlaceInput<SiteModel>> = (context) => {
     const fleet = new Batch()
     for (let index = 0; index < count; index += 1) {
       const z = GATE.z - 0.9 - index * 1.25
+      if (fine) {
+        fineTruck(fleet, GATE.x, z, c.sky)
+        continue
+      }
       fleet.add(boxShape(0.75, 0.6, 1.0, 0.04), '#f2f2f2', { x: GATE.x, y: 0.45, z }, 'satin')
       fleet.add(boxShape(0.7, 0.5, 0.42, 0.05), '#3f88c5', { x: GATE.x, y: 0.4, z: z + 0.72 }, 'satin')
       fleet.add(boxShape(0.6, 0.18, 0.02), c.sky, { x: GATE.x, y: 0.52, z: z + 0.94 }, 'glow', false)

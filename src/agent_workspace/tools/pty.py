@@ -17,6 +17,7 @@ from agent_workspace.tools.base import (
     json_result,
     optional_int,
 )
+from agent_workspace.tools.command import _chart_defaults
 from agent_workspace.tools.paths import StrPath, WorkspacePaths
 from agent_workspace.tools.process_worker import terminate_process_tree_pid
 
@@ -273,6 +274,7 @@ def _clean_environment_block() -> Any:
         value = os.environ.get(name)
         if value:
             values[name] = value
+    values.update(_chart_defaults())
     block = "".join(f"{name}={value}\0" for name, value in values.items()) + "\0"
     return ctypes.create_unicode_buffer(block)
 

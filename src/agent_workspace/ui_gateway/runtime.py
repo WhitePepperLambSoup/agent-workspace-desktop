@@ -117,6 +117,7 @@ from agent_workspace.ui_gateway.gateway_common import (
     _SessionHostContext,
     _TeamTurn,
 )
+from agent_workspace.ui_gateway.gateway_data import DATA_COMMANDS, DataCommands
 from agent_workspace.ui_gateway.gateway_debug import DEBUG_COMMANDS, DebugCommands
 from agent_workspace.ui_gateway.gateway_devices import DeviceCommands
 from agent_workspace.ui_gateway.gateway_exports import EXPORT_COMMANDS, ExportCommands
@@ -146,6 +147,7 @@ from agent_workspace.ui_gateway.protocol import (
     ProtocolError,
     encode_message,
 )
+from agent_workspace.ui_gateway.provider_trust import TrustedProviders, origin_of
 from agent_workspace.ui_gateway.research import ResearchTools
 from agent_workspace.ui_gateway.schedules import (
     ScheduleBook,
@@ -222,6 +224,7 @@ _UNLOCKED_HANDLERS: Final = _handler_table(
     (["turn.files.hunk.undo"], "_undo_turn_hunk"),
     (["skills.list", "skills.set", "skills.folder.open"], "_skills_command"),
     (["limits.get", "limits.set"], "_task_limits_command"),
+    (["subagents.model.get", "subagents.model.set"], "_subagent_model_command"),
     (["cost.estimate"], "_estimate_cost"),
     (_DEVICE_COMMANDS, "_device_command"),
     (_KNOWLEDGE_COMMANDS, "_knowledge_command"),
@@ -233,6 +236,7 @@ _UNLOCKED_HANDLERS: Final = _handler_table(
     (SPEC_COMMANDS, "_spec_command"),
     (DEBUG_COMMANDS, "_debug_command"),
     (TOUR_COMMANDS, "_tour_command"),
+    (DATA_COMMANDS, "_data_command"),
     (REFERENCE_COMMANDS, "_references_command"),
     (SCIENCE_COMMANDS, "_science_command"),
     (EXPORT_COMMANDS, "_export_command"),
@@ -242,6 +246,8 @@ _UNLOCKED_HANDLERS: Final = _handler_table(
     (_WATCH_COMMANDS, "_watch_command"),
     (["document.preview"], "_document_preview"),
     (["session.usage"], "_session_usage"),
+    (["usage.conversations"], "_conversations_usage"),
+    (["session.replay"], "_session_replay"),
     (["memory.list"], "_list_memories"),
     (["workspace.agent.inspect"], "_inspect_agent_setup"),
     (["audio.transcribe"], "_transcribe_audio"),
@@ -295,6 +301,10 @@ _LOCKED_HANDLERS: Final = _handler_table(
     (["provider.delete"], "_delete_provider"),
     (["provider.default"], "_set_default_provider"),
     (["provider.bootstrap"], "_bootstrap_provider"),
+    (
+        ["provider.trust.list", "provider.trust.add", "provider.trust.remove"],
+        "_provider_trust_command",
+    ),
     (["runtime.autonomy.set"], "_set_autonomy"),
     (["approval.resolve"], "_resolve_approval"),
     (["workspace.files.tree"], "_list_workspace_files_tree"),
@@ -328,10 +338,12 @@ _LOCKED_HANDLERS: Final = _handler_table(
     (["workspace.review.comments.resolve"], "_resolve_review_comment"),
     (["workspace.review.comments.followup"], "_followup_review_comment"),
     (["app.shutdown"], "_shutdown_command"),
+    (["app.activity"], "_activity_command"),
 )
 
 
 class GatewayRuntime(
+    DataCommands,
     ProviderCommands,
     CodeCommands,
     ProjectCommands,
@@ -428,6 +440,10 @@ class GatewayRuntime(
         self._git_delivery_in_progress = False
         self._runtime_state = "unconfigured"
         self._approval_ledger: dict[str, _ApprovalEntry] = {}
+        # "Allow in this conversation" by tool, for a conversation and its experts together; and
+        # the conversations whose current turn read outside content that talked to the agent.
+        self._team_grants: dict[str, set[str]] = {}
+        self._team_distrusted: set[str] = set()
         self._pending_host_events: list[Event] = []
         self._durable_cutoffs: dict[str, int] = {}
         self._snapshot_pending_event_ids: set[str] = set()
@@ -488,6 +504,7 @@ class GatewayRuntime(
         # Phones paired with this desktop (device_link). The endpoint stays off until the user
         # turns it on; tasks handed over run in sessions of this gateway.
         self._device_link = DeviceLink(self._database.with_name("device-link"), self)
+        self._provider_trust = TrustedProviders(self._database.with_name("trusted-providers.json"))
         self._device_hosted_sessions: dict[str, float] = {}
         self._device_host_starting: set[str] = set()
         self._settle_device_tasks_after_restart()
@@ -535,6 +552,9 @@ class GatewayRuntime(
         # The expert team of each conversation's turn in progress (turn.start "team"), by session:
         # conversations left running in the background keep their own team.
         self._team_turns: dict[str, _TeamTurn] = {}
+        # The thinking effort of each conversation's latest turn (None: the model's own), which
+        # its sub-agents follow unless the user chose theirs.
+        self._turn_efforts: dict[str, str | None] = {}
         # Device link 2: what phones send and collect, and requests this desktop's AI sends them.
         self._device_hub = DeviceHub(self)
         self._phone_jobs = _GatewayPhoneJobs(self)
@@ -1124,6 +1144,11 @@ class GatewayRuntime(
             "workspace.sessions.list",
             "session.open",
             "app.shutdown",
+            "app.activity",
+            "data.status",
+            "data.backup",
+            "data.restore",
+            "data.fresh_start",
             "provider.set",
             "provider.clear",
             "provider.delete",
@@ -1144,6 +1169,30 @@ class GatewayRuntime(
     def _bootstrap_command(self, command: CommandEnvelope) -> GatewayReply:
         self._require_payload(command, set())
         return self._bootstrap_reply(command.request_id)
+
+    def _activity_command(self, command: CommandEnvelope) -> GatewayReply:
+        """What would stop with the app: its window asks this before closing, and for the tray."""
+        self._require_payload(command, set())
+        turns = sum(
+            1
+            for session in self._active_session_documents()
+            if session["activeTurn"] or session["turnRequested"] or session["queuedCount"]
+        )
+        # A delegated run belongs to the turn that started it, which is already counted.
+        runs = sum(1 for run_id in self._run_hosts if run_id not in self._delegations)
+        # For the main process, not the window, so it takes no sequence number (see the server).
+        return GatewayReply(
+            "app.activity.result",
+            {
+                "epoch": self.epoch,
+                "runningTasks": turns + runs,
+                "schedules": sum(1 for schedule in self._schedules.all() if schedule.enabled),
+                "phoneLink": bool(self._device_link.settings()["enabled"]),
+            },
+            None,
+            0,
+            False,
+        )
 
     def _shutdown_command(self, command: CommandEnvelope) -> GatewayReply:
         self._require_payload(command, set())
@@ -2109,7 +2158,10 @@ class GatewayRuntime(
                 chosen = parse_team(command.payload["team"])
             except ExpertError:
                 raise GatewayError("invalid_team") from None
-            team = (_TeamTurn(chosen), team_lead_note(lead_instructions(chosen, review=review)))
+            team = (
+                _TeamTurn(chosen),
+                team_lead_note(lead_instructions(chosen, review=review), auto=chosen.auto),
+            )
         self._check_monthly_cap()
         prompt = prompt.strip()
         if references:
@@ -2226,7 +2278,10 @@ class GatewayRuntime(
         limits = self._task_limits()
         if limits is not None:
             kwargs["limits"] = limits
-        return host.submit_turn(prompt, **kwargs)
+        future = host.submit_turn(prompt, **kwargs)
+        if self._host_session_id is not None:
+            self._turn_efforts[self._host_session_id] = reasoning_effort
+        return future
 
     @staticmethod
     def _turn_model_override(value: object) -> str:
@@ -2864,7 +2919,7 @@ class GatewayRuntime(
         return self._reply(
             "approval.resolve.result",
             {"epoch": self.epoch, "resolved": True},
-            session_id=entry.session_id,
+            session_id=command.session_id,
         )
 
     def _settle_approval_resolution(
@@ -2930,6 +2985,8 @@ class GatewayRuntime(
                 )
         if entry.turn_terminal:
             del self._approval_ledger[request_id]
+        if scope is ApprovalScope.SESSION:
+            self._allow_for_team(entry)
 
     def _start_host(self, *, session_id: str | None, deadline: float | None = None) -> None:
         with self._lock:
@@ -2940,6 +2997,7 @@ class GatewayRuntime(
                 _START_TIMEOUT_SECONDS, _LIFECYCLE_TIMEOUT_SECONDS
             )
             settings = RuntimeSettings(
+                egress_trusted=self._provider_trust.trusts,
                 workspace=self._workspace,
                 database=self._database,
                 provider=self._provider,
@@ -2954,6 +3012,8 @@ class GatewayRuntime(
                 turn_files=start_turn_watch,
                 workspace_tools=self._folder_tools,
                 tool_hooks=self._coding.hooks,
+                tool_guards=True,
+                long_turns=True,
             )
         host: Host | None = None
         try:
@@ -3489,6 +3549,12 @@ class GatewayRuntime(
             subagent = _approval_display_text(event.data.get("subagent"))
             if subagent:
                 payload["subagent"] = subagent
+            if event.data.get("kind") == "provider_egress":
+                # Its address without path or query, for "always allow this provider".
+                endpoint = event.data.get("endpoint")
+                with suppress(TypeError, ValueError):
+                    payload["endpoint"] = origin_of(cast(str, endpoint))
+                    payload["kind"] = "provider_egress"
             plan = _approval_plan(event.data)
             if plan is not None:
                 payload["plan"], payload["planTotal"] = cast(list[object], plan[0]), plan[1]
@@ -3692,7 +3758,10 @@ class GatewayRuntime(
                 self._selected_session_id = raw_id
                 if source_host is self._host and self._host_session_id is None:
                     self._host_session_id = raw_id
+        elif event_type == "content.untrusted":
+            self._distrust_team(session_id)
         elif event_type == "turn.started":
+            self._team_distrusted.discard(session_id)
             raw_turn = payload.get("turnId") or payload.get("correlationId")
             self._active_turn = str(raw_turn or "active")
             if self._active_queue_id is not None:
@@ -3763,6 +3832,9 @@ class GatewayRuntime(
                         },
                         source_host=source_host,
                     ),
+                )
+                self._allow_as_team_did(
+                    approval_request_id, self._approval_ledger[approval_request_id]
                 )
         elif event_type == "runtime.mode_applied":
             raw_mode = payload.get("mode")

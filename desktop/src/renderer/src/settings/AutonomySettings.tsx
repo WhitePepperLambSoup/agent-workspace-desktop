@@ -1,5 +1,5 @@
-import { ShieldCheck } from 'lucide-react'
-import { useState } from 'react'
+import { ShieldCheck, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
 
 import type { WorkbenchBridgeClient } from '../bridge/client'
 import { useI18n, type I18nValue } from '../i18n/I18nProvider'
@@ -24,8 +24,47 @@ const HELP_KEYS: Record<Autonomy, MessageKey> = {
 
 interface AutonomySettingsProps {
   state: WorkbenchState
-  client?: Pick<WorkbenchBridgeClient, 'setAutonomy'>
+  client?: Pick<WorkbenchBridgeClient, 'setAutonomy'> & Partial<Pick<WorkbenchBridgeClient, 'trustedProviders' | 'distrustProvider'>>
   i18n?: I18nValue
+}
+
+/** The model services conversations send to without asking; each can be asked about again. */
+function TrustedProviders({ client, i18n }: { client: Required<Pick<NonNullable<AutonomySettingsProps['client']>, 'trustedProviders' | 'distrustProvider'>>; i18n: I18nValue }) {
+  const { t } = i18n
+  const [origins, setOrigins] = useState<readonly string[]>([])
+  const load = (reply: { payload: Record<string, unknown> }): void => {
+    const list = reply.payload.origins
+    setOrigins(Array.isArray(list) ? list.filter((item): item is string => typeof item === 'string') : [])
+  }
+  useEffect(() => {
+    let active = true
+    void client.trustedProviders().then((reply) => { if (active) load(reply) }, () => undefined)
+    return () => { active = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once for this client
+  }, [client])
+  if (origins.length === 0) return null
+  return (
+    <div className="settings-row trusted-providers" data-testid="trusted-providers">
+      <div className="setting-label">
+        <strong>{t('settings.autonomy.trusted')}</strong>
+        <span>{t('settings.autonomy.trustedHelp')}</span>
+      </div>
+      <ul className="data-backups">
+        {origins.map((origin) => (
+          <li key={origin}>
+            <span>{origin}</span>
+            <span />
+            <span className="provider-actions">
+              <button type="button" aria-label={t('settings.autonomy.trustedRemove', { origin })} onClick={() => void client.distrustProvider(origin).then(load, () => undefined)}>
+                <X size={13} aria-hidden="true" />
+                <span>{t('settings.autonomy.trustedAsk')}</span>
+              </button>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
 }
 
 function AutonomySettingsView({ state, client, i18n }: AutonomySettingsProps & { i18n: I18nValue }) {
@@ -84,6 +123,7 @@ function AutonomySettingsView({ state, client, i18n }: AutonomySettingsProps & {
           ))}
         </div>
       </div>
+      {client?.trustedProviders && client.distrustProvider ? <TrustedProviders client={client as never} i18n={i18n} /> : null}
       {state.runtime.activeTurn !== null ? <p className="settings-note">{t('settings.autonomy.busy')}</p> : null}
       {error ? <p className="route-error" role="status">{t('settings.autonomy.failed')}: {t(error === 'runtime_busy' ? 'settings.autonomy.busyNow' : error === 'session_not_active' ? 'settings.autonomy.sessionInactive' : error === 'runtime_start_failed' ? 'settings.autonomy.runtimeStartFailed' : 'settings.autonomy.tryAgain')}</p> : null}
     </section>

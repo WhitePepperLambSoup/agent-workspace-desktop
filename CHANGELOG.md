@@ -6,6 +6,105 @@ All notable changes to the desktop app are recorded here. The format follows
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-02
+
+### Added
+
+- First-use setup: a new install opens on choosing a model (the cloud services, a server on this
+  computer, or any compatible address; the key is tried before it is saved, and what went wrong is
+  said in plain words) and a folder, chosen or a default one in Documents.
+- Running in the background: closing the window asks when tasks, scheduled tasks or the phone
+  connection would stop, and the app can stay in the notification area, as a remembered choice or
+  from Settings. It can start with Windows, hidden, and keeps the computer from sleeping while a task
+  runs (Settings → Running in the background).
+- Data and backups in Settings: what is stored, a backup on request, and putting a backup back, which
+  until now took the command line. A damaged database can be recovered from the conversation page,
+  from the latest backup or with an empty database; neither deletes the damaged file.
+- A new version is found by itself once a day and said in a notice with its release notes; nothing
+  downloads without a click. Settings → About & Updates turns the check off.
+- Mermaid blocks in answers are drawn as diagrams, and stay in exported answers.
+- Settings can be searched, and has a list of its sections to jump to. The most used come first.
+- The High graphics setting also refines the places: the library's bookcases, reading tables and
+  lamps, the server racks, the site's cabin, fence, crane and buildings, the campus's buildings,
+  fountain, lamps and trees.
+- A help page ([docs/HELP.md](docs/HELP.md)), with links from About to it and to reporting a problem.
+- A 3D graphics setting (Settings → Appearance): Standard, as before, or High for a strong computer,
+  which only the user turns on: the discrete GPU at up to twice the window's pixels, reflections,
+  ambient occlusion, soft shadows and a colour grade, with finer people and furniture.
+- The control room, a new place on the campus: every conversation at work in one view, to answer,
+  open or stop.
+- Things are done in the places themselves: at the building site a file's diff with undo and restore,
+  in the server room a job's output and a way to stop it, in the library a search.
+- A finished turn can be replayed in the studio.
+- The model and the thinking effort sub-agents use can be set apart from the conversation's
+  (Settings → Sub-agent model).
+- What a conversation has cost, its sub-agents and experts included.
+- A notice and a mark on the conversation when one goes quiet at work for five minutes, or its turn
+  fails.
+- A paired phone can hand a task to this computer's expert team (`team`; see
+  [docs/DEVICE_LINK_API.md](docs/DEVICE_LINK_API.md)).
+- An easter egg for when you use a DeepSeek model.
+- A start-up screen, with the phone's lines of light and orbits, until the first state has arrived.
+  When the start takes long it says why and for how long, and the window can be minimized or closed.
+- Outside content that talks to the agent (a web page, a document or a command's output saying
+  "ignore your instructions") is reported in the conversation: what was allowed for the conversation
+  is taken back, every further step of that turn asks whatever the autonomy, and nothing lasting is
+  written. It is a pre-filter on known phrasings, not a guarantee.
+- A file the agent writes that is broken for its type (JSON, CSV, HTML, Python) is saved, and the model
+  is told what to fix.
+
+### Changed
+
+- Long tasks: a turn may now run for up to a day and thousands of steps, where it used to stop at 192
+  model attempts or 256 tool calls, about twenty minutes of steady work. The cost limit is unchanged.
+  An interrupted model stream has its own tries for each model call, with waits growing to three
+  minutes, and a stream silent for five minutes counts as dead, so a dead connection or a few minutes
+  without a network no longer ends or hangs a task. Local models are given all the time they need.
+- Allowing one expert for the conversation covers the team's other experts and its lead.
+- New in a conversation nothing was said in stays there, instead of adding another blank one.
+- A provider chosen in first-use setup, or with Always allow on the question, is no longer asked
+  about in each conversation. Requests that may hold sensitive paths still ask, and Settings →
+  Autonomy can ask about each provider again.
+- A stopped turn's notice offers Settings when a key, a balance or a limit stopped it, and sending
+  again otherwise.
+- The main process's dialogs and the tray speak the window's language.
+- On an automatic expert team the lead works first and calls experts where they add something, which
+  used about a third fewer tokens with the same scores on the bench.
+- Switching between places leaves no blank moment, and the control room's scene draws with fewer
+  calls.
+
+### Fixed
+
+- Updating from inside the app failed at the download, because the installer left out
+  `resources/app-update.yml`. Versions before 1.0.0 still cannot update this way: run the 1.0.0 installer
+  over them; conversations, settings and keys stay.
+- Answering an expert's or a background run's question from another conversation restarted the engine
+  and stopped the team's work.
+- A check of the conversations longer than about 10 s (after a crash or an update, on a large history
+  or a slow computer) left the runtime stopped until a restart. It now runs first, and the window waits
+  for it, however long it takes.
+- Prices in answers (`$5 and $10`, `A$40,000 … A$40k`) no longer turn into formulas, and `\( \)` and
+  `\[ \]` are drawn.
+- A `<br>` in a table cell is a line break, and other HTML tags show as written instead of vanishing.
+- A page in the preview that keeps its state in `localStorage`, `sessionStorage` or a cookie works,
+  for as long as it is open.
+- Plan mode can search and read the web.
+- Chinese labels in Matplotlib charts are drawn as text, not boxes, in any Python the agent runs; a
+  project's own `matplotlibrc` comes first.
+- A drag or the wheel that starts on a name tag or a sign in the studio turns or zooms the view.
+- Places in the studio read nothing while the window is hidden.
+- Titles of agent runs that needed attention stayed in English in the other languages.
+- An error while drawing part of the window no longer blanks the whole window: each page, panel,
+  conversation entry and the backdrop fail on their own, with a way to try again, and the error goes
+  to the log.
+- A folder with no conversation could not be sent to: it now gets one.
+- A large repository lists its files instead of failing, without its build output.
+- A sandbox run in a Git repository works without `.git`, so YOLO need not ask each time.
+- `search_files` on a file searches that file instead of refusing.
+- A stopped conversation's sub-agents show as stopped.
+- Many commands' replies made the window read its whole state again, opening Settings among them,
+  and if that read failed the composer stayed on "Resyncing" until the app restarted.
+
 ## [0.2.0-alpha.2] - 2026-10-31
 
 ### Added
